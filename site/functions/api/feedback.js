@@ -5,6 +5,11 @@ const KINDS = ["bug", "idea", "other"];
 const PLATFORMS = ["macos", "windows", "linux", "ios", "android", "web"];
 const MAX_FILES = 5, MAX_FILE = 25 * 1024 * 1024, MAX_TOTAL = 50 * 1024 * 1024;
 const OK_EXT = /\.(png|jpe?g|gif|webp|heic|heif|mp4|mov|m4v|webm|txt|log|ips|crash|json|zip|pdf)$/i;
+// Content-Type from the checked extension, never the client's f.type (an HTML type would render as a page)
+const TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+  heic: "image/heic", heif: "image/heif", mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v",
+  webm: "video/webm", zip: "application/zip", pdf: "application/pdf" };
+const typeOf = name => TYPES[name.split(".").pop().toLowerCase()] || "text/plain; charset=utf-8";
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const clip = (v, n) => String(v || "").trim().slice(0, n);
 
@@ -35,7 +40,7 @@ export async function onRequestPost({ request, env }) {
     const id = row.meta.last_row_id, keys = [];
     for (const [i, f] of files.entries()) {
       const key = `feedback/${id}/${i + 1}-${f.name.replace(/[^\w.\-]+/g, "_").slice(-80)}`;
-      await env.FILES.put(key, f.stream(), { httpMetadata: { contentType: f.type || "application/octet-stream" } });
+      await env.FILES.put(key, f.stream(), { httpMetadata: { contentType: typeOf(f.name), contentDisposition: "attachment" } });
       keys.push(key);
     }
     await env.DB.prepare("UPDATE feedback SET attachments = ? WHERE id = ?").bind(JSON.stringify(keys), id).run();
