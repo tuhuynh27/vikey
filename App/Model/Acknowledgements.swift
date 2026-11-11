@@ -11,7 +11,6 @@ enum Acknowledgements {
     /// Code Vikey uses.
     static let code: [Credit] = [
         Credit(name: "OpenKey", by: "Tuyen Mai", license: "GPL-3.0", url: "https://github.com/tuyenvm/OpenKey"),
-        Credit(name: "Sparkle", by: "Sparkle Project", license: "MIT", url: "https://sparkle-project.org"),
     ]
     /// Text Vikey's word statistics are counted from (only counts are built in, no text).
     static let wordData: [Credit] = [

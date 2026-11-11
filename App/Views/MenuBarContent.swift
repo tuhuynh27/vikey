@@ -20,7 +20,6 @@ struct MenuBarContent: View {
         Divider()
         Button("Hướng dẫn…") { OnboardingWindow.show() }
         Button("Gửi góp ý…") { Feedback.open() }
-        Button("Kiểm tra cập nhật…") { Updater.shared.checkForUpdates() }
         Button("Giới thiệu Vikey") { AboutPanel.show() }
         Button("Thoát Vikey") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

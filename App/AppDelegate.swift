@@ -13,7 +13,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: OnboardingView.doneKey)
         }
         AppState.shared.startIfPossible()
-        _ = Updater.shared                     // starts Sparkle: daily update checks
         EmojiPicker.shared.install()
         if UserDefaults.standard.bool(forKey: "showOnboarding") { OnboardingWindow.show() }   // -showOnboarding YES (screenshots)
         if UserDefaults.standard.bool(forKey: "showAbout") { AboutPanel.show() }             // -showAbout YES (screenshots)
