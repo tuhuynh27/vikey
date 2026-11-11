@@ -74,7 +74,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
     var suggestions: List<Suggestion> = emptyList()
         set(v) { if (field != v) { field = v; invalidate() } }
     /** The letters typed so far in the current word and the mode, for the fat-finger model. */
-    var wordContext: (() -> Pair<String, Boolean>)? = null
+    var wordContext: (() -> Pair<String, Boolean>?)? = null   // null: no fat-finger guessing (password fields)
     /** Where the last typed key was touched; taken (set to null) by the controller. */
     var lastTapPoint: Pair<Float, Float>? = null
     var keyRects = KeyRects(ByteArray(0), FloatArray(0)); private set
@@ -421,14 +421,15 @@ class KeyboardView(ctx: Context) : View(ctx) {
             if (touchKey == null) { val i = barCell(x); if (i < suggestions.size) { barPointer = id; barIndex = i } }
             return
         }
+        // a new touch while another is down: the earlier key is typed now (fast two-thumb typing). First, as it may
+        // change the layer (a symbol after a slide off 123 goes back to ABC): the new touch is on those keys
+        touchKey?.let { finish(it) }
         var k = keyAt(x, y) ?: return
         var kind = k.kind
         // fat-finger: a touch near a letter's border goes to the letter most likely next in this word
         if (kind is KeyKind.Char && layer == Layer.LETTERS && !keyRects.isEmpty) wordContext?.invoke()?.let { (prefix, vi) ->
             Driver.pickLetter(x / d, y / d, prefix.lowercase(), vi, keyRects)?.let { pc -> letterKeys[pc]?.let { k = it; kind = it.kind } }
         }
-        // a new touch while another is down: the earlier key is typed now (fast two-thumb typing)
-        touchKey?.let { finish(it) }
         pointerId = id; touchKey = k; touchStartX = x; touchStartY = y; lastX = x; slideFromLayer = false
         press(k, late = SystemClock.uptimeMillis() - eventTime > 50)
         when (kind) {

@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build cmake g++ python3 rpm libibus-1.0-dev libx11-dev libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev libfontconfig-dev
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build cmake g++ python3 rpm libarchive-tools zstd libibus-1.0-dev libx11-dev libgtk-4-dev libadwaita-1-dev libgstreamer1.0-dev libfontconfig-dev
       - name: Engine lock (rule cases, golden, Telex lock, driver parity, perf)
         run: bash Linux/check.sh
       - name: Build IBus engine + settings app, package .deb and .rpm
@@ -34,6 +34,14 @@ jobs:
           cmake -S Linux -B Linux/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVIKEY_IBUS=ON
           cmake --build Linux/build
           cd Linux/build && cpack -G DEB && cpack -G RPM && ls -la ./*.deb ./*.rpm
+      - name: Build Arch Linux (pacman) package from the .deb
+        if: hashFiles('Linux/ibus/CMakeLists.txt') != ''
+        run: |
+          Linux/packaging/make-pacman.sh Linux/build/vikey_*.deb Linux/build
+          ls -la Linux/build/*.pkg.tar.zst
+      - name: Check the pacman package (pacman -Qip in an Arch container)
+        if: hashFiles('Linux/ibus/CMakeLists.txt') != '' && matrix.arch == 'x64'
+        run: docker run --rm -v "$PWD/Linux/build:/pkg:ro" archlinux:latest sh -c 'pacman -Qip /pkg/*.pkg.tar.zst'
       - uses: actions/upload-artifact@v4
         if: hashFiles('Linux/ibus/CMakeLists.txt') != ''
         with:
@@ -41,6 +49,7 @@ jobs:
           path: |
             Linux/build/*.deb
             Linux/build/*.rpm
+            Linux/build/*.pkg.tar.zst
   # Tag v<version>: put the packages on the GitHub release (release.sh --linux publishes them to vikey.app).
   release:
     needs: engine

@@ -3,6 +3,8 @@
 # Build:      cmake --build Windows/build
 # The test binaries land where Tools/autoswitch/check.sh and the Python scripts expect them.
 cmake_minimum_required(VERSION 3.21)
+# Static C++ runtime (/MT): Vikey.exe runs without the Visual C++ Redistributable, which the installer and zip don't ship (#79)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(Vikey LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

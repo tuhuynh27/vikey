@@ -1,6 +1,6 @@
 pkg_check_modules(ADW IMPORTED_TARGET libadwaita-1 gtk4 fontconfig)
 if(ADW_FOUND)
-  add_executable(vikey-settings Settings.cpp Guide.cpp Emoji.cpp ../ibus/Prefs.cpp)
+  add_executable(vikey-settings Settings.cpp Guide.cpp Emoji.cpp CrashReport.cpp ../ibus/Prefs.cpp ../ibus/Crash.cpp)
   target_compile_definitions(vikey-settings PRIVATE VIKEY_VERSION="${VIKEY_VERSION}" VIKEY_DATADIR="${CMAKE_INSTALL_FULL_DATADIR}/vikey")
   target_link_libraries(vikey-settings PRIVATE PkgConfig::ADW)
   pkg_check_modules(GTKX11 IMPORTED_TARGET gtk4-x11 x11)

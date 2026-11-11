@@ -1,0 +1,24 @@
+# Engine bugs Tony reported, each as the exact keys he typed (harness notation: < Backspace, # switch hotkey, { } ← →, @ click).
+# status: fixed (must pass; CI fails if one comes back) or open (counted, not yet passing). The scorecard shows fixed/total.
+# id	date	decision	status	start_lang	keys	expected	final_lang	what was reported
+R1	2026-10-28	D8	fixed	1	this makes sense 	this makes sense 	0	"I typed 'this makes' in VN mode and got 'thí makes'"
+R2	2026-10-28	D9	fixed	1	lanwm 	lanwm 	1	"meant lắm, typed lanwm": a Vietnamese typo must not switch to English
+R3	2026-10-28	D14	fixed	1	"trang web" 	"trang web" 	0	"trang ưeb" typed inside double quotes didn't change
+R4	2026-10-28	D14	fixed	1	doesn't 	doesn't 	0	"doén't" didn't change
+R5	2026-10-28	D17	fixed	1	tomorrow 	tomorrow 	0	doubled tone key left "tômrrow"
+R6	2026-10-28	D18	fixed	1	let's mixx 	let's mix 	0	"let's mix" gave "mĩ", x again gave "mixx"
+R7	2026-10-28	D19	fixed	1	verr	ver	0	"v e r r" showed "vẻ" then "verr"; should show "ver"
+R8	2026-10-28	D20	fixed	1	(this create 	(this create 	0	"(thí create " didn't change "thí" into "this"
+R9	2026-10-28	D20	fixed	1	this create <s	this creates	0	Backspace after "this create " turned it back into "thí"
+R10	2026-10-29	D32	fixed	1	booj source vaay <j 	bộ source vậy 	1	"bộ source vaay " -> Backspace -> "j" should give "vậy"
+R11	2026-10-29	D39	fixed	1	owr DDaf 	ở Đà 	1	"o w r D d a f" gave "ở DDaf"
+R12	2026-10-29	D40	fixed	1	see you 	see you 	0	"see you" gave "sê you"
+R13	2026-10-29	D41	fixed	0	THOONG 	THÔNG 	1	THOONG stayed as typed in English mode
+R14	2026-10-29	D41	fixed	0	THUOWNGF 	THƯỜNG 	1	THUOWNGF stayed as typed
+R15	2026-10-29	D41	fixed	0	VIEETJ 	VIỆT 	1	VIEETJ stayed as typed
+R16	2026-10-29	D42	fixed	1	e lieen heej been ASL 	e liên hệ bên ASL 	0	"e liên hệ bên ASL" came out "been ASL"
+R17	2026-10-30	D48	fixed	1	la vowis os 	la với ó 	1	"la với ó" gave "la với os"
+R18	2026-10-30	D49	fixed	1	xin #hello#<s	xin hells	1	"xin ⌥Z hello ⌥Z ⌫ s" gave "xin heín"
+R19	2026-10-31	D53	fixed	1	zui zer 	zui zẻ 	1	teencode chat spelling ("zui zẻ", "zậy", "gòy", "thík") was put back to its keys
+R20	2026-11-02	D58	fixed	1	docs 	docs 	0	"docs" gave "dóc" (X user report via Tony)
+R21	2026-11-08	D60	fixed	0	this get resets 	this get resets 	0	"typing 'this get resets ' turns into 'this get rêts '" (macOS)

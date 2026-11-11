@@ -43,10 +43,12 @@ static void loadInto(std::map<std::string, std::string>& _v, const std::string& 
         _v[key] = val;
     }
 }
-static void saveMap(const std::map<std::string, std::string>& m, const std::string& path) {
+static bool saveMap(const std::map<std::string, std::string>& m, const std::string& path) {
     std::string tmp = path + ".tmp" + std::to_string(getpid());   // the engine and vikey-settings both save: one temp file each
     std::ofstream f(tmp); f << "{\n"; bool first = true; for (auto& kv : m) { f << (first ? "" : ",\n") << jstr(kv.first) << ": " << kv.second; first = false; } f << "\n}\n"; f.close();
-    if (f) rename(tmp.c_str(), path.c_str()); else ::remove(tmp.c_str());   // a failed write (disk full) keeps the good file
+    if (f && rename(tmp.c_str(), path.c_str()) == 0) return true;
+    ::remove(tmp.c_str());   // a failed write (disk full) keeps the good file
+    return false;
 }
 static time_t _ownSec = 0; static long _ownNs = 0;
 static void noteOwnWrite() { struct stat st; if (stat(settingsPath().c_str(), &st) == 0) { _ownSec = st.st_mtime; _ownNs = st.st_mtim.tv_nsec; } }
@@ -54,15 +56,24 @@ static void save() { mkdirp(configDir()); saveMap(_v, settingsPath()); noteOwnWr
 bool changedByOthers() { struct stat st; if (stat(settingsPath().c_str(), &st) != 0) return false; return st.st_mtime != _ownSec || st.st_mtim.tv_nsec != _ownNs; }
 std::string commandPath() { return configDir() + "/command"; }
 void sendCommand(const std::string& cmd) { mkdirp(configDir()); std::string tmp = commandPath() + ".tmp"; { std::ofstream f(tmp); f << cmd << "\n"; } rename(tmp.c_str(), commandPath().c_str()); }
-static void saveStats() { mkdirp(dataDir()); saveMap(_st, statsPath()); }
+static bool saveStats() { mkdirp(dataDir()); return saveMap(_st, statsPath()); }
+// a counter goes up on every word typed: written by flushStats() on the engine's flush timer, not in the key callback
+static bool _statsDirty = false;
+void clearStats() { std::lock_guard<std::mutex> g(_m); if (!_loaded) load(); _st.clear(); _statsDirty = !saveStats(); }
+void flushStats() { std::lock_guard<std::mutex> g(_m); if (_statsDirty && saveStats()) _statsDirty = false; }   // a failed write is retried on the next flush
 /// Before changing a key: re-read the file, so another writer's keys survive.
 static std::map<std::string, std::string>& mapFor(const char* key, bool forWrite) { if (isStat(key)) return _st; if (forWrite) loadInto(_v, settingsPath()); return _v; }
 static void ensure() { if (!_loaded) load(); }
-void reload() { std::lock_guard<std::mutex> g(_m); load(); }
+void reload() {   // after a change from the settings app or the panel menu
+    std::lock_guard<std::mutex> g(_m);
+    _loaded = true;
+    loadInto(_v, settingsPath());
+    if (!_statsDirty) loadInto(_st, statsPath());   // counters not written yet stay until flushStats() writes them
+}
 int getInt(const char* key, int fallback) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, false); auto it = m.find(key); if (it == m.end() || it->second.empty() || it->second[0] == '"') return fallback; return atoi(it->second.c_str()); }
-void setInt(const char* key, int value) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); m[key] = std::to_string(value); if (isStat(key)) saveStats(); else save(); }
+void setInt(const char* key, int value) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); m[key] = std::to_string(value); if (isStat(key)) _statsDirty = true; else save(); }
 std::string getString(const char* key, const std::string& fallback) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, false); auto it = m.find(key); if (it == m.end() || it->second.empty() || it->second[0] != '"') return fallback; return unjstr(it->second); }
-void setString(const char* key, const std::string& value) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); m[key] = jstr(value); if (isStat(key)) saveStats(); else save(); }
+void setString(const char* key, const std::string& value) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); m[key] = jstr(value); if (isStat(key)) _statsDirty = true; else save(); }
 static const char* B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 std::vector<unsigned char> getBinary(const char* key) {
     std::string s = getString(key, ""); std::vector<unsigned char> out; int val = 0, bits = -8;
@@ -76,6 +87,6 @@ void setBinary(const char* key, const unsigned char* d, size_t n) {
     setString(key, o);
 }
 bool has(const char* key) { std::lock_guard<std::mutex> g(_m); ensure(); return mapFor(key, false).count(key) != 0; }
-void remove(const char* key) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); if (m.erase(key)) { if (isStat(key)) saveStats(); else save(); } }
+void remove(const char* key) { std::lock_guard<std::mutex> g(_m); ensure(); auto& m = mapFor(key, true); if (m.erase(key)) { if (isStat(key)) _statsDirty = !saveStats(); else save(); } }
 std::vector<std::string> keys() { std::lock_guard<std::mutex> g(_m); ensure(); std::vector<std::string> k; for (auto& kv : _v) k.push_back(kv.first); for (auto& kv : _st) k.push_back(kv.first); return k; }
 }}

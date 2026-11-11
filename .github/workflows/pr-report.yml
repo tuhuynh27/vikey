@@ -1,0 +1,29 @@
+name: PR report
+# Posts (and keeps updating) one comment under each pull request with the engine's test and simulation
+# metrics, each compared with main. Security: the test workflows run the PR's code without secrets and only upload
+# their logs; this workflow runs code from main only, never checks out or runs the PR, and reads the logs as
+# untrusted data (only expected numbers and names are taken from them).
+on:
+  workflow_run:
+    workflows: ["Engine rules"]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+concurrency:
+  group: pr-report-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # the default branch: this report script, not the PR
+        with: { sparse-checkout: .github/scripts }
+      - name: Build and post the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python3 .github/scripts/pr_report.py

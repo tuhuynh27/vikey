@@ -15,6 +15,7 @@ CASES = [  # name, language (0 EN / 1 VI), autocap, keys, expected
     ("snap_period",     0, False, "this .", "this."),
     ("snap_comma",      0, False, "well ,", "well,"),
     ("snap_close_paren",0, False, "(ok )", "(ok)"),
+    ("snap_after_switch",1, False, "booj source vaay ?", "bộ source vây?"),   # the snap-back's delete isn't a Backspace undo
     ("no_snap_open",    0, False, "a (", "a ("),
     ("smart_dash",      0, False, "a--b", "a—b"),
     ("lets_capital",    0, False, "Lets ", "Let's "),
@@ -25,6 +26,8 @@ CASES = [  # name, language (0 EN / 1 VI), autocap, keys, expected
     ("shortcut_undo",   0, False, "omw \b", "omw"),
     ("shortcut_vi",     1, False, "omw ", "On my way! "),
     ("strip_pick",      0, False, "teh\x03", "the "),   # \x03 = tap the middle strip cell (picks on lift)
+    ("delete_selection",0, False, "hello world\x04\b", "hello "),   # \x04 = select the 5 characters before the cursor
+    ("dash_selection",  0, False, "a-hello\x04-", "a—"),     # the smart dash's own delete leaves the selection to the typed dash
 ]
 
 def main():
@@ -36,7 +39,9 @@ def main():
         clear_field()
         sh("am broadcast -a app.vikey.DEBUG -p app.vikey --ei lang %d --ez letters true >/dev/null" % lang); time.sleep(0.4)
         for part in keys.split("\x03"):
-            if part: type_text(part, top)
+            for i, sub in enumerate(part.split("\x04")):
+                if i: sh("; ".join(["input keycombination -t 200 59 21; sleep 0.3"] * 5)); time.sleep(0.5)   # Shift+Left, from the app's side
+                if sub: type_text(sub, top)
         if "\x03" in keys: time.sleep(0.4); sh("input tap 540 %d" % (top + int(28 * 2.625))); time.sleep(0.4)
         time.sleep(0.6)
         got = field_text(); ok = got == want; fails += not ok

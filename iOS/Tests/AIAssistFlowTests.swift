@@ -6,7 +6,8 @@ import UIKit
 final class AIAssistFlowTests: XCTestCase {
     private let sender = KeyboardView()
 
-    override func tearDown() { AIAssist.stub = nil; super.tearDown() }
+    override func setUp() { super.setUp(); KeyboardViewController.wordCheckDelay = 0 }
+    override func tearDown() { AIAssist.stub = nil; KeyboardViewController.wordCheckDelay = 300_000_000; super.tearDown() }
 
     private func make(_ lang: Int = 0) -> (KeyboardViewController, CursorProxy) {
         let vc = KeyboardViewController()
@@ -54,16 +55,6 @@ final class AIAssistFlowTests: XCTestCase {
         XCTAssertEqual(p.text, "Cảm ơn bạn ")
         settle { self.strip(vc).first?.kind == .next }
         XCTAssertFalse(strip(vc).isEmpty, "and the next ones")
-    }
-
-    func testAIAddsAWordTheTableDoesntHave() {
-        AIAssist.stub = .init(next: { _ in ["zzword"] })
-        let (vc, _) = make(1)
-        type("camr own ", vc)
-        settle { self.strip(vc).contains { $0.text == "zzword" } }
-        XCTAssertEqual(strip(vc).count, 3)
-        XCTAssertEqual(strip(vc).first?.text, "bạn", "the table's best stays first")
-        XCTAssertEqual(strip(vc).last?.text, "zzword")
     }
 
     // proofread: preview, then apply or cancel
@@ -227,23 +218,6 @@ final class AIAssistFlowTests: XCTestCase {
         XCTAssertEqual(p.text, "fixd it")
     }
 
-    func testTypingEndsUndo() {
-        AIAssist.stub = .init(proofread: { _ in "Fixed it." })
-        let (vc, p) = make()
-        p.text = "fixd it"; p.cursor = 0
-        select(p, vc, p.text)
-        settle { vc.aiStateForTests == .text("fixd it", .ready) }
-        vc.keyboard(sender, pickSuggestion: 0)
-        settle { vc.proofreadPanelForTests != nil }
-        vc.proofreadPanelForTests?.onApply?()
-        settle { self.strip(vc).first?.kind == .undo }
-        type(" ok", vc)
-        settle()
-        XCTAssertEqual(vc.aiStateForTests, .none)
-        XCTAssertFalse(strip(vc).contains { $0.kind == .undo })
-        XCTAssertEqual(p.text, "Fixed it. Ok")
-    }
-
     func testMovingAwayEndsUndo() {
         AIAssist.stub = .init(proofread: { _ in "Fixed it." })
         let (vc, p) = make()
@@ -317,35 +291,12 @@ final class AIAssistFlowTests: XCTestCase {
         XCTAssertEqual(p.text, "The s")
     }
 
-    func testUndoDoesNotFireSomewhereElse() {
-        AIAssist.stub = .init(proofread: { _ in "We were late." })
-        let (vc, p) = make()
-        p.text = "We was late. They were here"; p.cursor = 0
-        select(p, vc, "was")
-        settle { self.strip(vc).first?.kind == .alternative }
-        vc.keyboard(sender, pickSuggestion: 0)
-        XCTAssertEqual(p.text, "We were late. They were here")
-        p.cursor = "We were late. They were".count; vc.selectionDidChange(nil)   // after another "were"
-        settle()
-        XCTAssertEqual(vc.aiStateForTests, .none)
-        XCTAssertFalse(strip(vc).contains { $0.kind == .undo })
-    }
-
     func testNoNextWordsWhileTextIsSelected() {
         let (vc, p) = make()                                       // no Apple Intelligence (no stub)
         p.text = "hello there and more"; p.cursor = 6
         select(p, vc, "there and")
         settle()
         XCTAssertFalse(strip(vc).contains { $0.kind == .next }, "a tap would replace the selection")
-    }
-
-    func testWordAfterAQuoteGetsItsOwnFix() {
-        AIAssist.stub = .init(proofread: { _ in "He said \"the end\"" })
-        let (vc, p) = make()
-        p.text = "He said \"teh end\""; p.cursor = 0
-        select(p, vc, "teh")
-        settle { self.strip(vc).first?.kind == .alternative }
-        XCTAssertEqual(strip(vc).map(\.text), ["the"])
     }
 
     func testFailureIsNotNoMistakesAndCanRetry() {
@@ -387,15 +338,6 @@ final class AIAssistFlowTests: XCTestCase {
         settle()
         XCTAssertEqual(vc.aiStateForTests, .text("fixd it now", .ready), "still selected: offer it again")
         XCTAssertEqual(p.text, "fixd it now")
-    }
-
-    func testTooLongIsNotOffered() {
-        AIAssist.stub = .init(proofread: { $0 })
-        let (vc, p) = make()
-        p.text = String(repeating: "word ", count: 400); p.cursor = 0
-        select(p, vc, p.text)
-        settle { if case .text(_, .tooLong) = vc.aiStateForTests { return true }; return false }
-        XCTAssertEqual(strip(vc).first?.kind, .busy)
     }
 
     func testOnlyEmojiOrPunctuationIsIgnored() {

@@ -1,4 +1,4 @@
-# name	start	keys	expected   (keys: \b Backspace, \n Enter, {alt+z} switch hotkey)
+# name	start	keys	expected   (keys: \b Backspace, \n Enter, {alt+z} switch hotkey, {caps} Caps Lock)
 telex_basic	vi	tieengs vieetj 	tiếng việt 
 telex_tone_anywhere	vi	truowfng truongwf truwownfg 	trường trường trường 
 hoa_modern	vi	hoaf 	hoà 
@@ -13,6 +13,8 @@ auto_tie_vi_kept	vi	tô thí 	tô thí
 undo_backspace	vi	more \b	moẻ
 identifier_guard	en	obj.dir my_var 	obj.dir my_var 
 hotkey_switch	vi	{alt+z}tieng 	tieng 
+hotkey_alt_held_twice	vi	{down:alt}zz{up:alt}vieetj 	việt 
+hotkey_held_switches_once	vi	{down:alt}{down:z}{down:z}{down:z}{up:z}{up:alt}vieetj 	vieetj 
 undo_then_continue_D32	en	vaay \bj 	vậy 
 undo_same_word_D32	en	vaay \b 	vaay 
 digits_vi_D33	vi	5trawm 	5trăm 
@@ -22,3 +24,9 @@ look_forward_D35	vi	vaof office its nhaats 	vào office ít nhất
 dd_one_capital_D39	vi	ddi DDaf Nawngx 	đi Đà Nẵng 
 caps_telex_en_D41	en	THOONG 	THÔNG 
 acronym_keeps_prev_D42	vi	e lieen heej been ASL 	e liên hệ bên ASL 
+numpad_digit_D33	vi	a{num1}a	a1a
+numpad_operator_ends_word	vi	a{add}a	a+a
+restore_then_home_moves	vi	testflight{home}a	atestflight
+capslock_comma_after_acronym	vi	NAS{caps},{caps}	NAS,
+capslock_period_en_D41	en	THOONG{caps}.{caps}	THÔNG.
+capslock_undo_at_space	vi	more{caps} {caps}\b	moẻ

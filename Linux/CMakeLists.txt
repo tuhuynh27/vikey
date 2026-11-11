@@ -44,6 +44,8 @@ vikey_tool(drvlazy   ${AS}/driver/drvlazy.cpp    ${AS}/driver vikey_engine)
 vikey_tool(bench     ${AS}/driver/bench.cpp      ${AS}/driver vikey_engine)
 vikey_tool(undo_test ${AS}/driver/undo_test.cpp  ${AS}/driver vikey_engine)
 vikey_tool(touchsim  ${AS}/touch/touchsim.cpp    ${AS}/touch  vikey_engine)
+add_executable(surrounding_test Tests/surrounding_test.cpp)   # the IBus engine's delete limit (#32), no IBus needed
+target_include_directories(surrounding_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ibus)
 
 option(VIKEY_IBUS "Build the IBus engine (needs libibus-1.0 + gtk4/libadwaita)" ON)
 if(VIKEY_IBUS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/ibus/CMakeLists.txt)
@@ -51,6 +53,7 @@ if(VIKEY_IBUS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/ibus/CMakeLists.txt)
 endif()
 
 # ---- packages: .deb (Ubuntu/Debian) and .rpm (Fedora) via CPack -----------------------------------------
+# The Arch .pkg.tar.zst is repacked from the .deb in CI (Linux/packaging/make-pacman.sh), not a CPack generator.
 set(CPACK_PACKAGE_NAME "vikey")
 set(CPACK_PACKAGE_VERSION "${VIKEY_VERSION}")
 set(CPACK_PACKAGE_CONTACT "Tony Dinh <patent@tdinh.me>")
@@ -59,6 +62,7 @@ set(CPACK_PACKAGE_HOMEPAGE_URL "https://vikey.app")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "ibus (>= 1.5), libgtk-4-1, libadwaita-1-0, libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libnotify-bin, fonts-noto-color-emoji, curl")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)   # adds the minimum libc6, libstdc++6, GTK and libadwaita versions the binaries need, so the .deb no longer installs where it can't start (Ubuntu 22.04, Debian 12)
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/packaging/postinst")
 set(CPACK_RPM_PACKAGE_REQUIRES "ibus >= 1.5, gtk4, libadwaita, gstreamer1, gstreamer1-plugins-base, gstreamer1-plugins-good, libnotify, google-noto-emoji-color-fonts, curl")

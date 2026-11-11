@@ -34,3 +34,4 @@ void buildEmoji(GtkApplication* app);
 void presentAcknowledgements(GtkWidget* parent);
 void buildAcknowledgements(GtkApplication* app);
 void checkUpdate(GtkApplication* app, bool quiet);
+void crashReport(GtkApplication* app, bool dialog);   // --crash-report [--dialog] (CrashReport.cpp)

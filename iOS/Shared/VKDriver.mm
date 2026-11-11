@@ -51,7 +51,7 @@ static bool KeyFor(unichar c, Uint16 &key, bool &shift) {
 - (NSInteger)language { return vLanguage; }
 - (void)setLanguage:(NSInteger)language { _d->setLanguage((int)language); }
 - (BOOL)autoSwitch { return _d->autoSwitch; }
-- (void)setAutoSwitch:(BOOL)on { _d->autoSwitch = on; vAutoSwitchByTyping = on; }
+- (void)setAutoSwitch:(BOOL)on { _d->autoSwitch = on; }   // the driver sets the engine's switch on the next key, so a pause after a manual switch stays
 - (double)pauseAfterManual { return _d->pauseAfterManual; }
 - (void)setPauseAfterManual:(double)s { _d->pauseAfterManual = s; }
 - (BOOL)spelling { return vCheckSpelling; }
@@ -60,6 +60,8 @@ static bool KeyFor(unichar c, Uint16 &key, bool &shift) {
 - (void)setRestoreIfInvalid:(BOOL)on { vRestoreIfWrongSpelling = on; }
 - (BOOL)modernOrthography { return vUseModernOrthography; }
 - (void)setModernOrthography:(BOOL)on { vUseModernOrthography = on; }
+- (NSInteger)telexStyle { return vTelexStyle; }
+- (void)setTelexStyle:(NSInteger)style { vTelexStyle = (int)MAX(0, MIN(2, style)); }
 
 
 - (VKEditResult *)convert:(const ::VKEdit &)e {

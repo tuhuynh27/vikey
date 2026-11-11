@@ -14,6 +14,9 @@ Tools/autoswitch/touch/normeval
 Tools/autoswitch/touch/typoeval
 Windows/build
 Tools/autoswitch/driver/undo_test
+Tools/autoswitch/driver/bench
+Tools/autoswitch/driver/drvlazy
+Tools/autoswitch/touch/touchsim
 Windows/installer/out/
 Windows/installer/mkinst.cmd
 

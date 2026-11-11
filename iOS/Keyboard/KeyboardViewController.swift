@@ -35,6 +35,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     private var proofreadPanel: ProofreadPanel?
     /// Longer selections aren't offered: the model's window is small, and the app may hand over only part of them.
     static let proofreadLimit = 1500
+    /// Wait before checking a selected word (handles may still be moving); tests set 0.
+    static var wordCheckDelay: UInt64 = 300_000_000
     /// The user's Text Replacements (Settings › General › Keyboard), like the system keyboard: "omw" → "On my way!"
     private var textReplacements: [String: String] = [:]
     func setTextReplacementsForTests(_ r: [String: String]) { textReplacements = r }
@@ -90,13 +92,20 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             keyboard.topAnchor.constraint(equalTo: view.topAnchor),
             keyboard.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        let h = view.heightAnchor.constraint(equalToConstant: KeyboardView.keyboardHeight(compactHeight: traitCollection.verticalSizeClass == .compact))
-        h.priority = .defaultHigh
+        // The height must CHANGE in viewWillAppear: when the constant is already right before the keyboard appears,
+        // iOS first shows it at an in-between height (a frame of a tall, empty keyboard, Tony, builds 40-49; it
+        // happened whenever the keyboard's process was reused, so on most opens and when swiping between apps).
+        // So it starts 1 pt off here and after every disappearance, and loadSettings() sets the real height.
+        let h = view.heightAnchor.constraint(equalToConstant: KeyboardView.keyboardHeight(compactHeight: traitCollection.verticalSizeClass == .compact) - 1)
+        // 999, and the input view sizes itself from it
+        h.priority = UILayoutPriority(999)
         h.isActive = true
         heightConstraint = h
+        (view as? UIInputView)?.allowsSelfSizing = true
         let saved = UserDefaults.standard.object(forKey: languageKey) as? Int ?? 1
         driver.language = saved
-        DispatchQueue.global(qos: .utility).async { _ = EmojiIndex.shared }   // the emoji keyboard opens instantly
+        // the emoji index is built when the emoji keyboard first opens, not here: at launch it pushed the keyboard
+        // toward iOS's memory limit (iOS swapped in its own keyboard ~100 ms after Vikey opened, Tony)
         requestSupplementaryLexicon { [weak self] lex in
             var r: [String: String] = [:]
             for e in lex.entries where e.userInput.lowercased() != e.documentText.lowercased()   // (contact names list themselves)
@@ -110,7 +119,14 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         setAI(.none); selection = nil
-        if AIAssist.available { AIAssist.prewarm() }   // the model loads while the user starts typing
+        AIAssist.refresh()   // off the main thread: whether the model is there
+        keyboard.animatesLanguage = false   // the pill takes the saved language without rolling while the keyboard comes up
+        comingUp = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.comingUp else { return }
+            self.comingUp = false; self.setContentVisible(true)
+        }
+        keyboard.resetTouches()   // a touch cut off when the keyboard last went away must not hold on to a key
         if let ev = emojiView, !ev.isHidden { emojiKeyboardClose(ev) }   // a new field opens on the letters
         if KeyboardView.searchTop != nil, emojiView?.searching != true {     // static: it outlives a closed keyboard
             KeyboardView.searchTop = nil
@@ -125,6 +141,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         if Diag.on {
             KBLog.add("open: fullAccess=\(hasFullAccess) haptics=\(keyboard.haptics) field=\(proxy.keyboardType?.rawValue ?? -1) return=\(proxy.returnKeyType?.rawValue ?? -1) width=\(Int(view.bounds.width))")
         }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        heightConstraint?.constant -= 1   // the next viewWillAppear must change it (see viewDidLoad)
+        hasAppeared = false
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -143,10 +165,28 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
         super.traitCollectionDidChange(previous)
         let browsingEmoji = emojiView.map { !$0.isHidden && !$0.searching } ?? false
-        heightConstraint?.constant = KeyboardView.keyboardHeight(compactHeight: traitCollection.verticalSizeClass == .compact)
-            + (browsingEmoji ? EmojiKeyboardView.extraHeight : 0)
+        if hasAppeared {   // before it appears, viewWillAppear sets the height (see viewDidLoad)
+            heightConstraint?.constant = KeyboardView.keyboardHeight(compactHeight: traitCollection.verticalSizeClass == .compact)
+                + (browsingEmoji ? EmojiKeyboardView.extraHeight : 0)
+        }
         keyboard?.setNeedsLayout()
         if previous?.userInterfaceStyle != traitCollection.userInterfaceStyle { refresh() }
+    }
+
+    /// iOS can show the keyboard for a frame or two at its own, taller height before ours applies (Tony saw the keys
+    /// at the top of a tall, half-empty keyboard): until the view has our height, its content stays invisible.
+    /// Only while the keyboard comes up, and never longer than 0.3 s (a host that keeps another height still gets keys).
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard comingUp, let h = heightConstraint?.constant else { return }
+        setContentVisible(abs(view.bounds.height - h) <= 2)
+    }
+    private var comingUp = false
+    private var hasAppeared = false
+    private func setContentVisible(_ on: Bool) {
+        let alpha: CGFloat = on ? 1 : 0
+        if keyboard.alpha != alpha { keyboard.alpha = alpha }
+        if let ev = emojiView, ev.alpha != alpha { ev.alpha = alpha }
     }
 
     override func viewWillLayoutSubviews() {
@@ -164,6 +204,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         driver.autoSwitch = d.bool(forKey: VKSettings.Key.autoSwitch)
         driver.pauseAfterManual = d.bool(forKey: VKSettings.Key.pauseAfterManual) ? 5 : 0
         driver.modernOrthography = d.bool(forKey: VKSettings.Key.modernOrthography)
+        driver.telexStyle = d.integer(forKey: VKSettings.Key.telexStyle)
         driver.spelling = d.bool(forKey: VKSettings.Key.spelling)
         driver.restoreIfInvalid = d.bool(forKey: VKSettings.Key.restoreIfInvalid)
         webFieldsEnglish = d.bool(forKey: VKSettings.Key.englishForWebFields)
@@ -209,6 +250,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         }
         lastContext = proxy.documentContextBeforeInput
         lastAfter = proxy.documentContextAfterInput ?? ""
+        recentContexts = []   // the last field's states mean nothing here
+        lastCorrection = nil; keepWord = nil   // nor its auto-correct: Backspace here deletes, it doesn't undo an old fix
         clearWord()
         updateAutoShift(lastContext ?? "")
     }
@@ -253,7 +296,39 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        keyboard.animatesLanguage = true
+        hasAppeared = true
+        comingUp = false; setContentVisible(true)
+        keyboard.playMarkIntro()
         readSelection()   // opened onto text that's already selected
+        if !showDebugNudge() { nudgeSoon(after: 2.3) }   // after the mark's intro
+    }
+
+    /// When the strip's nudges show (Nudges.swift).
+    private let nudges = Nudges()
+    private var nudgeWired = false
+    /// The nudge due, if any, a moment from now, on an empty strip while no word is being typed.
+    private func nudgeSoon(afterUndo: Bool = false, after delay: Double = 0.8) {
+        if !nudgeWired {
+            nudgeWired = true
+            keyboard.onNudge = { [weak self] k, acted in if acted { self?.nudges.acted(k) } else { self?.nudges.closed(k) } }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.keyboard.suggestions.isEmpty, self.wordPrefix.isEmpty, self.keyboard.bar.nudge == nil,
+                  let k = self.nudges.due(afterUndo: afterUndo) else { return }
+            self.nudges.shown(k)
+            self.keyboard.bar.showNudge(k)
+        }
+    }
+
+    /// The app's debug menu asked for a nudge (VKSettings.Key.debugNudge): shown once, after the mark's intro.
+    /// The keyboard only reads the shared defaults, so what it showed is kept in its own.
+    @discardableResult private func showDebugNudge() -> Bool {
+        guard let v = VKSettings.defaults.string(forKey: VKSettings.Key.debugNudge), v != UserDefaults.standard.string(forKey: "debugNudgeShown"),
+              let k = NudgeView.Kind(rawValue: String(v.split(separator: ":").first ?? "")) else { return false }
+        UserDefaults.standard.set(v, forKey: "debugNudgeShown")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.3) { [weak self] in self?.keyboard.bar.showNudge(k) }
+        return true
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -296,7 +371,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         if Diag.on { KBLog.add("text read (iOS said the text changed): \(Self.time((CACurrentMediaTime() - r0) * 1000))") }
         let after = proxy.documentContextAfterInput ?? ""
         let moved = after != lastAfter
-        if !moved, selection == nil, let c = ctx, c != lastContext, recentContexts.contains(c) { return }   // the app is catching up with our edits
+        // the app is catching up with our edits. It reads them back in order, so the ones before are done with:
+        // the app going back to one of them later (its undo, a field cleared after Send) is a change
+        if !moved, selection == nil, let c = ctx, let i = recentContexts.firstIndex(of: c) { recentContexts.removeFirst(i + 1); return }
         if moved || (ctx != lastContext && !Self.sameEnding(ctx ?? "", lastContext ?? "")) {
             if Diag.on { KBLog.add("reset: text changed outside the keyboard (cursor moved, or the app changed it)") }
             driver.resetContext()
@@ -332,7 +409,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             clearWord()
             for ch in c { type(String(ch)) }
         case .char(let c):
-            if snapsBack(c) { backspace() }   // "this ." → "this." like the system keyboard (Tony)
+            if snapsBack(c) {   // "this ." → "this." like the system keyboard (Tony); our own delete, so not a Backspace undo of an auto switch
+                proxy.deleteBackward(); driver.resetContext(); afterEdit(deleted: 1, inserted: "")
+            }
             if c == "-", (lastContext ?? "").hasSuffix("-"), !(lastContext ?? "").hasSuffix("--"),
                (proxy.smartDashesType ?? .default) != .no {   // smart dashes: "--" → "—"
                 backspace(); clearWord(); type("—"); break
@@ -355,18 +434,16 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             if keyboard.shift == .on { keyboard.shift = .off }
             if keyboard.layer_ != .letters && (c == "'" ) { keyboard.layer_ = .letters }
         case .space:
+            let ended = (lastContext ?? "").last.map { ".!?".contains($0) } ?? false
             if !autoCorrectAtBreak() { spaceKey() }
             clearWord()
+            if ended { nudgeSoon() }   // a sentence's end: a quiet moment
         case .returnKey:
             clearWord()
             if keyboard.layer_ == .numbers || keyboard.layer_ == .symbols { keyboard.layer_ = .letters }   // like space: a new line starts on ABC (Tony)
             type("\n")
         case .backspace:
-            if undoCorrection() { break }
-            if !wordPrefix.isEmpty {
-                wordPrefix.removeLast(); wordXs.removeLast(); wordYs.removeLast()
-                wordCaps = min(wordCaps, wordPrefix.count)
-            }
+            if undoCorrection() { nudges.undone(); nudgeSoon(afterUndo: true); break }
             backspace()
         case .shift:
             let t = now
@@ -378,6 +455,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
             keyboard.layer_ = l
             if l == .letters { updateAutoShift(lastContext ?? "") }   // back on ABC after a new line or ". ": the capital shows
         case .language:
+            nudges.manualSwitch(); nudgeSoon(afterUndo: true)
             lastCorrection = nil
             driver.manualSwitch(at: now)
             fieldLanguage = nil
@@ -439,16 +517,26 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         }
         type(" ")
         lastSpace = now
-        if keyboard.layer_ != .letters { keyboard.layer_ = .letters }
+        if keyboard.layer_ != .letters {   // space on 123 goes back to ABC: with the capital after ". " (Tony: "this. build")
+            keyboard.layer_ = .letters
+            updateAutoShift(lastContext ?? "")
+        }
     }
 
     private func type(_ s: String) {
         let e = driver.typeCharacter(s, now: now)
+        if e.languageChanged { nudges.autoSwitched() }
         apply(e)
     }
 
     private func backspace() {
-        apply(driver.backspace(at: now))
+        if !wordPrefix.isEmpty {   // every delete shortens the word, a held Delete too ("isnt", held back to "i", + t is "it")
+            wordPrefix.removeLast(); wordXs.removeLast(); wordYs.removeLast()
+            wordCaps = min(wordCaps, wordPrefix.count)
+        }
+        let e = driver.backspace(at: now)
+        if e.languageChanged { nudges.undone(); nudgeSoon(afterUndo: true) }   // Backspace put back what an auto switch changed
+        apply(e)
     }
 
     private func apply(_ e: VKEditResult) {
@@ -636,6 +724,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
         driver.resetContext()
         if (driver.language == 1) != vietnamese && driver.autoSwitch {
             driver.language = vietnamese ? 1 : 0
+            nudges.autoSwitched()
             saveLanguage(); refresh()
         }
         lastCorrection = recordUndo ? (old, insert) : nil
@@ -692,9 +781,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardViewDelegate 
 
     /// Capital letter at the start of a sentence, like the system keyboard.
     /// Punctuation typed right after a space goes back onto the word: "this ." → "this.", "hello "" → "hello"".
-    /// Quotes and brackets only when they close one that is open in this paragraph.
+    /// Quotes and brackets only when they close one that is open in this paragraph. Not : or ; (Tony): they start
+    /// emoticons, "haha :)" must not become "haha:)", and "Hello : " stays as typed.
     private func snapsBack(_ c: String) -> Bool {
-        guard ".,?!:;)\"".contains(c), let before = lastContext, before.hasSuffix(" ") else { return false }
+        guard ".,?!)\"".contains(c), let before = lastContext, before.hasSuffix(" ") else { return false }
         let prev = before.dropLast().last
         guard let p = prev, p != " ", p != "\n" else { return false }
         let para = before.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
@@ -829,7 +919,7 @@ extension KeyboardViewController: EmojiKeyboardDelegate {
         let vi = driver.language == 1
         let shown = vi ? Telex.convert(emojiQuery) : emojiQuery
         // nothing typed yet: the frequently used ones, never an empty row (Tony)
-        let byChar = { (c: String) in EmojiIndex.shared.all.first { $0.char == c } }
+        let byChar = { (c: String) in EmojiIndex.shared.emoji(c) }
         let found = emojiQuery.trimmingCharacters(in: .whitespaces).isEmpty
             ? EmojiUsage.frequent(in: VKSettings.defaults, count: 24).compactMap(byChar)
             : EmojiIndex.shared.search(emojiQuery, vietnamese: vi, limit: 80).filter { $0.version <= EmojiKeyboardView.maxVersion }
@@ -964,7 +1054,7 @@ extension KeyboardViewController {
     private func checkWord(_ word: String) {
         let before = proxy.documentContextBeforeInput ?? "", after = proxy.documentContextAfterInput ?? ""
         ask({
-            try? await Task.sleep(nanoseconds: 300_000_000)      // the selection handles may still be moving
+            try? await Task.sleep(nanoseconds: Self.wordCheckDelay)      // the selection handles may still be moving
             if Task.isCancelled { return nil }
             return await AIAssist.fixWord(word, before: before, after: after)
         }) { [weak self] (fixes: [String]?) in

@@ -30,6 +30,7 @@ D5.3	0	abc123 treen 	abc123 trên 	1	a word mixed with digits is skipped, the ne
 D5.3	0	tre<<<treen 	trên 	1	Backspace inside a word is followed
 D5.3	0	lan<wsm 	lắm 	1	typo fixed inside the word still converts
 D5.3	0	tre<<treen 	ttreen 	0	edited into an unknown word: no conversion
+D5.3	1	xin err treen a<<s	xin err trến	1	Backspace after an auto switch reopens the word it converted, not one from before the switch (was trín)
 D5.4	1	deploy leen server nhes 	deploy lên server nhé 	1	mixed sentence flips word by word (VN start)
 D5.4	0	deploy leen server nhes 	deploy lên server nhé 	1	mixed sentence flips word by word (EN start)
 D5.4	1	anh owi, mai minh ddi uoongs cafe nhes. 	anh ơi, mai minh đi uống cafe nhé. 	1	loanword in a Vietnamese sentence switches out and back
@@ -47,11 +48,17 @@ D8.1	0	check mail cos theer 	check mail có thể 	1	look-back the other way: co
 D8.1	0	nos theer 	nó thể 	1	look-back the other way: nos -> nó
 D8.1	0	cors gif 	có gì 	1	look-back: the common Vietnamese phrase wins
 D8.1	1	carm own 	cảm ơn 	1	EN start: carm converts, then own types ơn
+D8.1	1	this tooib makes 	thí tooib makes 	1	look-back stops at a word put back as typed: tooib is not ambiguous, so thí is not next to makes
+D8.1	1	last tooib week 	lát tooib week 	0	same when the later word switches by itself: week must not delete through tooib
 D8.2	1	cais testflight build 	cái testflight build 	0	unknown foreign word (not Vietnamese, not in the English list) restores + English
 D8.2	1	analytics dashboard 	analytics dashboard 	0	unknown foreign word restores
+D8.2	1	getSmartSwitchKeySaveDataFromApp 	getSmartSwitchKeySaveDataFromApp 	0	32 keys, the most the engine keeps: still restores
+D8.2	1	getSmartSwitchKeySaveDataFromApps 	gétmartSwitchKeySaveDataFromApps 	1	33+ keys: the first ones are gone, so the word stays as Telex made it (restoring lost its g, or typed it twice: #13)
+D8.2	1	windowsSubsystemForLinuxSettings 	ưindowsSubsystemForLinuxSettings 	1	32 letters on screen: more than the apps delete in one go, so it stays (was typed twice on Mac, Windows, Linux)
 D9	1	tooi thicsh lanwm 	tôi thích lanwm 	1	Vietnamese typo (has ă/â/ơ/ư/đ marks) never switches the language (shown as typed keys: D10 restore-if-invalid is on)
 D10	1	khoongg 	khoongg 	1	an invalid word is kept as typed keys without switching (restore-if-invalid, on by default); stays Vietnamese
 D10	1	windoows 	windoows 	0	a multi-syllable invalid word counts as a foreign word: kept as typed, switches to English
+D10	1	x.getSmartSwitchKeySaveDataFromApps 	x.gétmartSwitchKeySaveDataFromApps 	1	restore-if-invalid has the same limit (was x.etSmartSwitch...)
 D13	1	this makes 	this makes 	0	an English-only word right after an ambiguous one ("thí") switches at once and fixes it (Tony)
 D13	1	tooi thaays bee app bij loix 	tôi thấy bê app bị lõi 	1	Vietnamese followed by a tech word does not switch (the earlier word is not ambiguous enough)
 D14	1	trang web" 	trang web" 	0	a closing double quote ends the word like a comma: an English word is put back before it (Tony: "ưeb")
@@ -109,6 +116,8 @@ D30	1	cachs mix ddoof 	cách mix đồ 	1	"cách mix" (how to mix outfits): Engl
 D33	1	mua 1casi 	mua 1cái 	1	digits after a space start a new word: Telex works on the letters after them
 D33	1	abc1def 	abc1def 	1	digits glued to letters: a code, left alone
 D33	1	sacj 2w 	sạc 2w 	1	a lone w right after a digit is a unit (W), not ư
+D33	1	1#abc #wa 	1abc ưa 	1	a switch is a fresh start: the digit from before it doesn't make the next w a unit (was wa)
+D33	1	1err treen wa 	1err trên ưa 	1	same after auto switches out and back (was wa)
 D34	0	test cos work 	test có work 	0	a word pair that is clearly Vietnamese (10x) beats D22 ("right after an English word, a tie stays English")
 D35	1	vaof office its nhaats 	vào office ít nhất 	1	look-forward: a word put back to English flips to Vietnamese when the next word makes it clear (ít nhất)
 D39	1	ddi DDaf Nawngx 	đi Đà Nẵng 	1	DD is one letter (Đ): a word starting with it has one capital, not an acronym (DDR, DDoS keep two)
@@ -119,9 +128,95 @@ D41	0	THUOWNGF VIEETJ 	THƯỜNG VIỆT 	1	the same, two words
 D41	0	HW IRS USA NASA 	HW IRS USA NASA 	0	unmarked acronyms stay as typed
 D42	1	e lieen heej been ASL 	e liên hệ bên ASL 	0	an acronym put back to its keys does not flip the word before it (bên ASL, not been ASL)
 D42	1	been USA 	bên USA 	0	the same with an acronym that is an English word
-D43	1	la voiws os 	la với ó 	1	lowercase os in Vietnamese is ó (Tony); OS the acronym is typed in caps
-D43	0	the os is 	the os is 	0	in English, os stays
-D43	1	my os is linux 	my os is linux 	0	an English sentence keeps os
-D44	1	xin #hello#<s	xin hells	1	after a switch, Backspace never reopens a word from before it (Tony: gave "xin heín")
-D44	1	xin #hello# <<s	xin hells	1	the same over a space
-D44	1	tooi ddi hocj <s	tôi đi hóc	1	without a switch, Backspace still goes back into the last word
+D48	1	la voiws os 	la với ó 	1	lowercase os in Vietnamese is ó (Tony); OS the acronym is typed in caps
+D48	0	the os is 	the os is 	0	in English, os stays
+D48	1	my os is linux 	my os is linux 	0	an English sentence keeps os
+D49	1	xin #hello#<s	xin hells	1	after a switch, Backspace never reopens a word from before it (Tony: gave "xin heín")
+D49	1	xin #hello# <<s	xin hells	1	the same over a space
+D49	1	tooi ddi hocj <s	tôi đi hóc	1	without a switch, Backspace still goes back into the last word
+D50	1	cos<o 	co 	1	Backspace on a toned letter takes its keys too: retyping o gives co, not coo
+D50	1	sex <<e 	se 	1	the same with a tone typed last
+D50	1	toans<n 	toán 	1	a tone on a letter that stays is kept
+D51	1	th{}if 	thì 	1	← then → back inside a word: the engine still knows the word ({ } = ← →)
+D51	1	tru{{}}owcs 	trước 	1	two steps away and back
+D51	0	meeting th{}if 	meeting thì 	1	English mode: the word buffer survives the round trip too, so the space still converts it
+D51	1	tu{##}ows	tuớ	1	a switch while away (# = ⌥Z, here there and back) forgets the kept word: → brings nothing back
+D51	1	tu{#@#}ows	tuớ	1	switch, click in English, switch back: → still brings nothing back
+D51	0	meeting th{@}if 	meeting thif 	0	English mode: a click while away (@) forgets the word buffer, so the space doesn't convert "thif"
+D51	0	meeting th{##}if 	meeting thif 	0	English mode: and so does a switch there and back
+D51	0	meeting th{x<}if 	meeting thif 	0	English mode: so does a key typed while away, even if deleted again
+D52	1	wr -	ử -	1	a hyphen after a space is not part of the word before it (gave "wr wr-")
+D52	1	ab isw	ab iứ	1	the tone moving onto a just-added ư deletes only the letters of the word (the space before it stayed; gave "abiứ")
+D52	1	ab irw	ab iử	1	the same with hỏi
+D53	1	lamf zaayj 	làm zậy 	1	teencode (on by default): z for d, a known teencode word
+D53	1	mai thi goyf 	mai thi gòy 	1	teencode: open "oy" with huyền
+D53	1	thiks banj 	thík bạn 	1	teencode: k after i
+D53	1	zui zer 	zui zẻ 	1	teencode: z words
+D53	1	zero 	zero 	0	not a teencode word: an English word stays English ("zẻo" is not in the dictionary)
+D53	1	the zoo 	the zoo 	0	a tie in English context stays English
+D53	1	ddi zoo ddaay 	đi zô đây 	1	the same tie in Vietnamese context is teencode
+D53	1	look 	look 	0	k only after i or ư: look never becomes lôk
+D53	1	oxy 	oxy 	0	oy only with huyền: oxy stays
+D57	1	vieejt.<nam 	vieetjnam 	1	Backspace over punctuation brings back the word with its keys: nothing typed before is lost
+D57	1	too.<b 	toob 	1	the restored word keeps its letters when the next word restores
+D57	1	vieejt.< nam 	việt nam 	1	Backspace over punctuation, then a space: the word stays
+D57	1	VIEEJT.<NAM 	VIEETJNAM 	1	a Caps Lock word brought back keeps its capitals: the rebuilt vowel and tone keys too (was VIEeTjNAM)
+D57	1	VIEEJT <NAM 	VIEETJNAM 	0	the same over a space (was VIEeTjNAM)
+D57	1	Vieejt.<nam 	Vieetjnam 	1	a capitalised word: only its first letter comes back as a capital
+D57	1	toottoottoottoottoottoottoottoottoot.<x 	tôttoottoottoottoottoottoottoottootx 	1	a word too long for the key list comes back as it was: never replaced by part of its keys
+D56	1	[ 	ơ 	1	Telex (the default style): a lone [ is ơ
+D56	1	] 	ư 	1	Telex: a lone ] is ư
+D56	1	w 	ư 	1	Telex: a lone w is ư
+D58	1	docs 	docs 	0	docs (documentation) in Vietnamese mode stays English (X report, Tony)
+D58	1	xem docs nhes 	xem docs nhé 	1	docs in a Vietnamese sentence
+D58	1	nois docs 	nói dóc 	1	"nói dóc" (to lie) still converts
+D19	1	currentState 	currentState 	0	restore consumed tone key in a lowerCamelCase identifier
+D19	1	currentValue 	currentValue 	0	same identifier shape with a different suffix
+D19	1	dessert 	dessert 	0	keep the typed English word when deleting a letter also gives an English word
+D19	1	mousse 	mousse 	0	do not change one valid English spelling into another after Telex undo
+D19	1	mirrorless 	mirrorless 	0	restore literal keys for a multi-syllable word missing from the dictionary
+OOV-LITERAL	1	Sapa 	Sapa 	0	preserve a multi-syllable literal when the Telex rendering is unlisted
+OOV-LITERAL	1	Momo 	Momo 	0	same structural policy for lowercase or uppercase names
+OOV-LITERAL	1	mawca 	mâc 	1	explicit Telex modifier in an unlisted typo remains Vietnamese
+OOV-LITERAL	1	buwowng 	bương 	1	an unlisted syllable with explicit modifiers remains Vietnamese
+OOV-LITERAL	1	rieetj 	riệt 	1	keep an uncommon Vietnamese syllable
+OOV-LITERAL	1	chijt 	chịt 	1	keep an uncommon Vietnamese syllable with a tone
+OOV-LITERAL	1	hopoj 	hộp 	1	late circumflex modifier
+OOV-LITERAL	1	been Momo 	bên Momo 	0	a new literal name cannot justify rewriting the preceding Vietnamese word
+OOV-LITERAL	1	cuar Sapa 	của Sapa 	0	restore an unknown name without changing the preceding word
+OOV-LITERAL	1	This Samsung TV 	This Samsung TV 	0	keep existing lookback when spelling already provides English evidence
+OOV-LITERAL	1	buwowNg 	bươNg 	1	internal capitals must not bypass an explicit Telex w modifier
+OOV-LITERAL	1	rieeTj 	riệT 	1	internal capitals must not bypass a doubled vowel modifier
+D19	1	currentWindow 	currentWindow 	0	doubled-key literal restoration still accepts an internal capital with w
+OOV-LITERAL	1	hiszuf 	hìu 	1	tone removal between vowels is not a literal-word boundary
+OOV-LITERAL	1	hiszuf,	hìu,	1	same tone edit before punctuation
+OOV-LITERAL	1	hiszuf|	hìu|	1	same tone edit before Enter
+OOV-LITERAL	1	hiszuf <	hìu	1	Backspace after the boundary keeps the edited Vietnamese syllable
+OOV-LITERAL	1	amazing 	amazing 	0	a recognized English word containing z still restores
+OOV-LITERAL	1	organize 	organize 	0	known English restoration with z remains unchanged
+OOV-LITERAL	1	pizza 	pizza 	1	literal z letters remain in the output
+OOV-LITERAL	1	azure 	azure 	1	z between vowels is retained when it is a literal letter
+D19	1	curarize 	curarize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Curarize 	Curarize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	deferrize 	deferrize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Deferrize 	Deferrize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	horrorize 	horrorize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Horrorize 	Horrorize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	mirrorize 	mirrorize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Mirrorize 	Mirrorize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	sarrazin 	sarrazin 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Sarrazin 	Sarrazin 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	sororize 	sororize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Sororize 	Sororize 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	terrazzo 	terrazzo 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Terrazzo 	Terrazzo 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	terrorizer 	terrorizer 	0	z remains literal evidence after a doubled-key switch to English
+D19	1	Terrorizer 	Terrorizer 	0	z remains literal evidence after a doubled-key switch to English
+D60	0	this get resets 	this get resets 	0	EN mode: resets is a real form of an English word (SCOWL), though the frequency list has only reset; never rêts (Tony's report)
+D60	1	resets 	resets 	0	VN mode: the doubled s ends as the English word, not reets (D19: the dictionary decides at the end)
+D60	1	resizes 	resizes 	0	plural/verb forms the frequency list misses are English
+D60	1	quests 	quests 	0	quests, not quets
+D60	1	chi phis 	chi phí 	1	never when the letters are a Vietnamese word: phis (Greek letters) is phí
+D60	0	chi phis 	chi phí 	1	same in EN mode
+D60	1	thans 	thán 	1	a guessed form that isn't a real English word stays Vietnamese
+D60	0	crypto nos volatile 	crypto nó volatile 	1	words already in the frequency list keep their own score: D22's nos -> nó stays

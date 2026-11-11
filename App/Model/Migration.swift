@@ -6,6 +6,8 @@ enum Migration {
     static func fromOpenKeyIfNeeded() {
         Preferences.register()
         let defaults = UserDefaults.standard
+        telexStyleFromOpenKeyIfNeeded()
+        clearInvalidEmojiHotkey()
         guard !defaults.bool(forKey: "MigratedFromOpenKey") else { return }
         defaults.set(true, forKey: "MigratedFromOpenKey")
         guard let old = UserDefaults(suiteName: "com.tuyenmai.openkey") else { return }
@@ -26,5 +28,27 @@ enum Migration {
                 try? fm.copyItem(at: from, to: to)
             }
         }
+    }
+
+    /// An emoji hotkey saved before the recorder's rules (no ⌃/⌥/⌘, e.g. ⇧E, or the switch hotkey's keys) would eat
+    /// typing or the switch: cleared, so the settings ask for a new one.
+    private static func clearInvalidEmojiHotkey() {
+        let defaults = UserDefaults.standard
+        let k = defaults.integer(forKey: PrefEmoji.hotkey)
+        guard k != 0, k & 0x700 == 0 || Hotkey.sameKeys(k, defaults.integer(forKey: PrefKey.hotkey)) else { return }
+        defaults.set(0, forKey: PrefEmoji.hotkey)
+    }
+
+    /// OpenKey's input type 2 / 3 were Simple Telex 1 / 2 (D56; VNI, 1, isn't in Vikey). Its own one-time step, so people
+    /// who moved from OpenKey before Vikey had the setting get it too; a style already chosen in Vikey stays.
+    private static func telexStyleFromOpenKeyIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "MigratedTelexStyle") else { return }
+        let chosen = defaults.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?[PrefKey.telexStyle] != nil
+        if chosen { defaults.set(true, forKey: "MigratedTelexStyle"); return }
+        // done only once OpenKey's setting was read: if it can't be read now, the next launch tries again
+        guard let old = UserDefaults(suiteName: "com.tuyenmai.openkey"), let t = old.object(forKey: "InputType") as? Int else { return }
+        if t == 2 || t == 3 { defaults.set(t - 1, forKey: PrefKey.telexStyle) }
+        defaults.set(true, forKey: "MigratedTelexStyle")
     }
 }

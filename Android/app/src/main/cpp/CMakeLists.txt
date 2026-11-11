@@ -6,3 +6,5 @@ add_library(vikey SHARED vikey_jni.cpp ${ENGINE}/Engine.cpp ${ENGINE}/Vietnamese
 target_include_directories(vikey PRIVATE ${ENGINE} ${ENGINE}/platforms)
 target_compile_options(vikey PRIVATE -w -O2 -fvisibility=hidden)
 target_link_libraries(vikey log)
+# 16 KB memory pages (Android 15+ devices; required by Google Play): align the ELF segments to 16 KB
+target_link_options(vikey PRIVATE "-Wl,-z,max-page-size=16384")

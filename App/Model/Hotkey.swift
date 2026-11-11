@@ -20,6 +20,9 @@ struct Hotkey: Equatable {
 
     init(raw: Int) { self.raw = raw }
 
+    /// Same key and modifiers: the beep bit and the default's legacy high bits (0x7A000206) don't count.
+    static func sameKeys(_ a: Int, _ b: Int) -> Bool { (a & 0xFFF) == (b & 0xFFF) }
+
     init(keyCode: Int, modifiers: NSEvent.ModifierFlags, beep: Bool) {
         var r = keyCode & 0xFF
         if modifiers.contains(.control) { r |= 0x100 }

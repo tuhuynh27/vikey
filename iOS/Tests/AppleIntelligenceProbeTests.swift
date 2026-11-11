@@ -12,6 +12,8 @@ import FoundationModels
 /// Probe: is Apple's on-device model usable here, how fast is a next-word guess, and does it handle Vietnamese.
 final class AppleIntelligenceProbeTests: XCTestCase {
     func testProbe() async throws {
+        // exploratory: prints what the model says (run by hand). CI machines report the model but can't run it
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VIKEY_CI"] != nil, "Apple Intelligence probe: not on CI")
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable else { print("PROBE unavailable"); return }
         let instructions = """

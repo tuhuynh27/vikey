@@ -136,9 +136,18 @@ bool vAutoSwitchCheckEnglishWord(const Uint32* keys, const int& count,
                                  const Uint32* const* previous, const int* previousCounts, const int& previousN);
 
 /**
- * Forget the words remembered for look-back (language switched by hand, app changed...).
+ * Forget the words remembered for look-back (language switched by hand, app changed...),
+ * and the ones Backspace would go back into: they may not be what is on screen any more.
+ * Right after vAutoSwitchCheckEnglishWord converted a word, Backspace history is that word (it is on screen).
  */
 void vAutoSwitchForget();
+
+/** Teencode spelling (D53): z/dz for d, open "ie"/"oy", k after i/ư. On (1) by default. Defined in Engine.cpp. */
+extern int vTeencode;
+
+/** Telex style (D56): 0 = Telex, 1 = Simple Telex 1 ([ and ] are brackets, a lone w stays w),
+ *  2 = Simple Telex 2 ([ and ] are brackets, a lone w is still ư). uw / ow / aw work in all three. Defined in Engine.cpp. */
+extern int vTelexStyle;
 
 /**
  * Call at the end of the first English word after a doubled tone key switched to English (D18).

@@ -7,6 +7,7 @@ export PYTHONUTF8=1
 cmake -S "$root/Linux" -B "$root/Linux/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DVIKEY_IBUS=OFF >/dev/null
 cmake --build "$root/Linux/build"
 rc=0
+"$root/Linux/build/surrounding_test" || rc=1
 cd "$as"
 python3 rules/run_rules.py || rc=1
 python3 rules/golden.py ${1:-check} || rc=1

@@ -17,6 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) BOOL spelling;
 @property (nonatomic) BOOL restoreIfInvalid;
 @property (nonatomic) BOOL modernOrthography;
+/** 0 Telex, 1 Simple Telex 1, 2 Simple Telex 2 (D56). */
+@property (nonatomic) NSInteger telexStyle;
 
 /** One typed character: a letter, digit, punctuation, space or "\n". */
 - (VKEditResult *)typeCharacter:(NSString *)character now:(double)now;

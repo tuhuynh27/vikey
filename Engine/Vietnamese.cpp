@@ -271,7 +271,8 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
             {KEY_O, KEY_C},
             {KEY_O, KEY_T},
             {KEY_O, KEY_P},
-            {KEY_O}
+            {KEY_O},
+            {KEY_O, KEY_Y | END_CONSONANT_MASK},   //teencode only (D53): gòy
         }
     }, {
         KEY_E, {
@@ -306,6 +307,7 @@ map<Uint16, vector<vector<Uint16>>> _vowelForMark = {
     }, {
         KEY_U, {
             { KEY_U, KEY_N, KEY_G}, {KEY_U, KEY_G | END_CONSONANT_MASK},
+            { KEY_U, KEY_K | END_CONSONANT_MASK},   //teencode only (D53): ừk
             { KEY_U, KEY_I},
             { KEY_U, KEY_O},
             { KEY_U, KEY_Y},

@@ -29,8 +29,8 @@ struct HotkeyRecorder: View {
             let beep = Hotkey(raw: raw).beep
             if event.type == .keyDown {
                 if event.keyCode == 53 && mods.isEmpty { stop(); return nil }   // Esc cancels
-                if !mods.isEmpty {
-                    raw = Hotkey(keyCode: Int(event.keyCode), modifiers: mods, beep: beep).raw
+                if allowModifiersOnly ? !mods.isEmpty : !mods.isDisjoint(with: [.control, .option, .command]) {   // emoji: ⇧ alone isn't enough, ⇧E would take every capital E
+                    raw = Hotkey(keyCode: Int(VikeyCore.hotkeyKeyCode(for: event)), modifiers: mods, beep: beep).raw
                     stop()
                 }
                 return nil
@@ -41,6 +41,7 @@ struct HotkeyRecorder: View {
                     raw = Hotkey(keyCode: Hotkey.noKey, modifiers: pendingModifiers, beep: beep).raw
                     stop()
                 }
+                pendingModifiers = []   // all let go: a refused ⇧E (or a lone ⇧) doesn't add ⇧ to the next modifiers
             } else if mods.rawValue > pendingModifiers.rawValue || !pendingModifiers.isSuperset(of: mods) {
                 pendingModifiers = pendingModifiers.union(mods)
             }

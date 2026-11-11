@@ -168,7 +168,10 @@ struct OnboardingView: View {
             Text("Vikey tự chuyển khi bạn gõ lẫn tiếng Anh. Khi muốn tự chuyển, bấm phím tắt này. Bấm vào ô để đổi phím.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
-                HotkeyRecorder(raw: Binding(get: { hotkeyRaw }, set: { hotkeyRaw = $0; Preferences.apply() }))
+                HotkeyRecorder(raw: Binding(get: { hotkeyRaw }, set: { k in
+                    guard emojiOn == 0 || !Hotkey.sameKeys(k, emojiKey) else { return }   // already the emoji picker's (only while it's on)
+                    hotkeyRaw = k; Preferences.apply()
+                }))
                     .controlSize(.large)
                 Text(state.language == 1 ? "Đang gõ: Tiếng Việt" : "Đang gõ: English").foregroundStyle(.secondary)
             }
@@ -189,7 +192,10 @@ struct OnboardingView: View {
             }
             Text("Bấm một phím tắt để mở bảng emoji ở giữa màn hình. Tìm bằng tiếng Việt hay tiếng Anh đều được: \"ngựa\" hay \"horse\" đều ra 🐴.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Toggle(isOn: Binding(get: { emojiOn != 0 }, set: { emojiOn = $0 ? 1 : 0; Preferences.apply() })) {
+            Toggle(isOn: Binding(get: { emojiOn != 0 }, set: { on in
+                if on && Hotkey.sameKeys(emojiKey, hotkeyRaw) { emojiKey = 0 }   // a collision left from before: record it again
+                emojiOn = on ? 1 : 0; Preferences.apply()
+            })) {
                 Text("Bật bảng emoji")
             }
             .toggleStyle(.switch)
@@ -197,7 +203,7 @@ struct OnboardingView: View {
                 HStack(spacing: 12) {
                     Text("Phím mở bảng emoji")
                     HotkeyRecorder(raw: Binding(get: { emojiKey }, set: { k in
-                        guard k != hotkeyRaw & ~0x8000 else { return }
+                        guard !Hotkey.sameKeys(k, hotkeyRaw) else { return }
                         emojiKey = k & ~0x8000; Preferences.apply()
                     }), allowModifiersOnly: false, autoStart: emojiKey == 0)
                     .controlSize(.large)

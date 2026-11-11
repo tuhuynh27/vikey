@@ -59,9 +59,12 @@ final class KeyboardView: UIView {
         didSet {
             guard languageShort != oldValue else { return }
             refreshLabels()
-            if langTop { animateLanguagePill(toVietnamese: languageShort == "VI") }
+            if Self.markOn { mark.setLanguage(vietnamese: languageShort == "VI", animated: animatesLanguage) }
+            else if langTop && animatesLanguage { animateLanguagePill(toVietnamese: languageShort == "VI") }
         }
     }
+    /// Off while the keyboard comes up (the saved language is set, not switched to), on once it's shown.
+    var animatesLanguage = false
     var returnTitle = "return" { didSet { if returnTitle != oldValue { refreshLabels() } } }
     var returnIsBlue = false { didSet { if returnIsBlue != oldValue { refreshColors() } } }
     var haptics = false
@@ -79,6 +82,8 @@ final class KeyboardView: UIView {
     /// Taken (set to nil) by the controller; nil when a key wasn't typed by a touch.
     var lastTapPoint: CGPoint?
     let bar = SuggestionBar()
+    /// A nudge's button (true) or its ✕ (false), for Nudges.
+    var onNudge: ((NudgeView.Kind, Bool) -> Void)?
     var suggestions: [Suggestion] = [] { didSet { if suggestions != oldValue { bar.show(suggestions) } } }
 
     private var keys: [(def: KeyDef, view: KeyCap)] = []
@@ -103,6 +108,20 @@ final class KeyboardView: UIView {
     static var langStyle = 1   // Tony picked the pill (A); the bottom row is the fallback when the strip is off
     private var langTop: Bool { Self.langStyle > 0 && Self.barOn && Self.searchTop == nil && layer_ != .numpad }
     private var langTopWidth: CGFloat { [0, 50, 96, 70][min(Self.langStyle, 3)] }
+    /// The corner element: VI/EN switch and Vikey mark in one (LangMark.swift, Tony picked design A). Off = the plain
+    /// pill and the strip's brand on the right (kept for the render tests of the old proposals).
+    static var markOn = true
+    let mark = LangMarkView()
+    /// The keyboard is up: the mark plays its opening, at most once every 10 minutes (Tony: opening the keyboard many
+    /// times in a row, switching apps, must not replay it). Saved, since iOS ends the keyboard's process often.
+    static var markIntroEvery: TimeInterval = 600
+    func playMarkIntro() {
+        guard Self.markOn && langTop else { return }
+        let key = "markIntroLast", now = Date().timeIntervalSince1970
+        guard now - UserDefaults.standard.double(forKey: key) >= Self.markIntroEvery else { return }
+        UserDefaults.standard.set(now, forKey: key)
+        mark.playIntro()
+    }
     static let pillH: CGFloat = 38
     static let barH: CGFloat = 44
     /// The corner of the glass iOS puts the keyboard in (measured, iOS 26.5: 80 px at 3x). Anything in a corner
@@ -190,11 +209,19 @@ final class KeyboardView: UIView {
         diagLabel.isHidden = diagnostics == nil
         addSubview(bar)
         bar.onPick = { [unowned self] i in self.delegate?.keyboard(self, pickSuggestion: i) }
+        bar.onBrand = { [unowned self] in self.openVikeyApp() }
+        // A nudge's button opens the app where it acts: Apple's review sheet, or the feedback form.
+        bar.onNudge = { [unowned self] k in self.onNudge?(k, true); self.bar.hideNudge(); self.openVikeyApp(k == .review ? "review" : "feedback") }
+        bar.onNudgeClosed = { [unowned self] k in self.onNudge?(k, false) }
+        addSubview(mark)
         addSubview(popup); popup.isHidden = true
         addSubview(alternates); alternates.isHidden = true
         setFonts()
         refreshLabels()
+        // frames now, not at the next layout pass: a touch that comes first (a slide off ABC/123, the next tap of
+        // fast typing) found every new key at zero size and was dropped
         setNeedsLayout()
+        layoutIfNeeded()
     }
 
     override func layoutSubviews() {
@@ -281,6 +308,20 @@ final class KeyboardView: UIView {
         let barX = side + (langTop ? langTopWidth + 8 : 0)
         let barY = langTop ? dh + side + Self.pillH / 2 - (Self.barH - 4) / 2 : dh + 2   // centred on the pill
         bar.frame = CGRect(x: barX, y: barY, width: W - side - barX, height: Self.barH - 4)
+        bar.showsBrand = !Self.markOn
+        mark.isHidden = !(Self.markOn && langTop)
+        if !mark.isHidden {
+            // the key under the corner element is only a tap area; its colours may date from before the strip was on
+            // (a key-coloured square showed behind the pill in dark mode, Tony, build 51)
+            if let v = keys.first(where: { $0.def.kind == .language })?.view {
+                v.normalColor = .clear; v.pressedColor = .clear; v.layer.shadowOpacity = 0
+                if v.backgroundColor != .clear { v.backgroundColor = .clear }
+            }
+            mark.frame = CGRect(x: side, y: dh + side, width: W - 2 * side, height: Self.pillH)
+            mark.pillWidth = langTopWidth
+            mark.dark = dark
+            mark.setLanguage(vietnamese: languageShort == "VI", animated: false)
+        }
         letterRects = []; letterCaps = [:]
         for i in keys.indices where i < frames.count {
             keys[i].def.frame = frames[i]
@@ -355,6 +396,7 @@ final class KeyboardView: UIView {
 
     /// The proposals for a VI/EN key in the strip's corner.
     private func styleTopLanguage(_ v: KeyCap) {
+        if Self.markOn { v.label.attributedText = nil; v.label.text = nil; v.icon.image = nil; v.layer.shadowOpacity = 0; return }
         let brand = dark ? UIColor(red: 0.62, green: 0.60, blue: 1, alpha: 1) : UIColor(red: 0.31, green: 0.27, blue: 0.90, alpha: 1)
         v.layer.cornerRadius = Self.pillH / 2   // = hostCorner − the inset, give or take a point
         v.layer.cornerCurve = .continuous
@@ -378,6 +420,7 @@ final class KeyboardView: UIView {
 
     private func refreshColors() {
         bar.dark = dark
+        mark.dark = dark
         let fg: UIColor = dark ? .white : .black
         // the system keys over the keyboard's glass, measured: light (253,255,255) on (217,221,233) ≈ 95% white,
         // dark (61,61,67) on (23,24,31) ≈ 16.5% white (Tony: ours were too transparent)
@@ -389,6 +432,11 @@ final class KeyboardView: UIView {
             if def.kind == .returnKey && returnIsDone { bg = .systemGreen; tint = .white }
             if def.kind == .language && langTop && languageShort == "VI" {   // tinted in Vietnamese, neutral in English
                 bg = dark ? UIColor(red: 0.42, green: 0.40, blue: 1, alpha: 0.30) : UIColor(red: 0.31, green: 0.27, blue: 0.90, alpha: 0.14)
+            }
+            if def.kind == .language && langTop && Self.markOn {   // the corner element draws it (LangMark.swift), the key stays a tap area
+                v.normalColor = .clear; v.pressedColor = .clear
+                if v.backgroundColor != .clear { v.backgroundColor = .clear }
+                continue
             }
             if def.kind == .language { tint = dark ? UIColor(red: 0.62, green: 0.60, blue: 1, alpha: 1) : UIColor(red: 0.31, green: 0.27, blue: 0.90, alpha: 1) }
             if cursorMode { bg = dark ? UIColor(white: 0.32, alpha: 1) : UIColor(white: 0.93, alpha: 1) }
@@ -433,6 +481,7 @@ final class KeyboardView: UIView {
     /// skipped, or a backlog of touches would buzz two or three times in a row.
     private func press(_ c: KeyCap, late: Bool = false) {
         c.backgroundColor = c.pressedColor
+        if Self.markOn && langTop, keys.first(where: { $0.view === c })?.def.kind == .language { mark.pressed() }
         if late { Diag.late += 1; return }
         if haptics { tick() } else { UIDevice.current.playInputClick() }
     }
@@ -449,6 +498,9 @@ final class KeyboardView: UIView {
             Diag.touches += 1
             Diag.touchStart = CACurrentMediaTime()
             Diag.delayMs = max(Diag.delayMs, (Diag.touchStart - t.timestamp) * 1000)
+            // a new touch while another is down: the earlier key is typed now (fast two-thumb typing). First, as it
+            // may change the layer (a symbol after a slide off 123 goes back to ABC): the new touch is on those keys
+            if let prev = touch, let pk = touchKey { finish(prev, on: pk) }
             guard var c = cap(at: p), var k = kind(of: c), k != .globe else { continue }
             // fat-finger: a touch near a letter's border goes to the letter most likely next in this word
             // only on a letter key: the email/web . @ / .com keys on this page are never swapped for a letter (Tony: . gave n)
@@ -456,8 +508,6 @@ final class KeyboardView: UIView {
                 let picked = ctx.prefix.lowercased().withCString { VKPickLetter(Float(p.x), Float(p.y), $0, ctx.vietnamese ? 1 : 0, letterRects, Int32(letterRects.count)) }
                 if picked != 0, let pc = letterCaps[Character(UnicodeScalar(UInt8(bitPattern: picked)))], let pk = kind(of: pc) { c = pc; k = pk }
             }
-            // a new touch while another is down: the earlier key is typed now (fast two-thumb typing)
-            if let prev = touch, let pk = touchKey { finish(prev, on: pk) }
             touch = t; touchKey = c; touchStart = p; slideFromLayer = false
             press(c, late: CACurrentMediaTime() - t.timestamp > 0.05)
             switch k {
@@ -542,6 +592,13 @@ final class KeyboardView: UIView {
             }
         }
         release(c)   // again: the tap may have changed its colour (VI ⇄ EN tints the pill), skipped while it was down
+        reset()
+    }
+
+    /// A fresh start when the keyboard appears: no key held, no quiet period left over.
+    func resetTouches() {
+        if let c = touchKey { release(c) }
+        quietUntil = 0
         reset()
     }
 
@@ -758,13 +815,38 @@ struct Suggestion: Equatable {
 /// The strip above the keys: up to three words, like the system keyboard's.
 final class SuggestionBar: UIView {
     var onPick: ((Int) -> Void)?
+    var onBrand: (() -> Void)?
+    /// A nudge (Nudge.swift): its button, and its ✕.
+    var onNudge: ((NudgeView.Kind) -> Void)?
+    var onNudgeClosed: ((NudgeView.Kind) -> Void)?
+    private let nudgeView = NudgeView()
+    /// The nudge shown, on an empty strip only: words coming in fold it away.
+    private(set) var nudge: NudgeView.Kind?
     var dark = false { didSet { if dark != oldValue { restyle() } } }
     private var cells: [UIButton] = []
     private var lines: [UIView] = []
     private var items: [Suggestion] = []
+    /// The brand on the right of an empty strip (Tony): the icon and the wordmark, as in the Mac emoji panel.
+    private let mark = UIView()
+    var showsBrand = true { didSet { if showsBrand != oldValue { restyle() } } }
+    private let markIcon = UILabel()
+    private let markText = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        markIcon.text = "Vi"
+        markIcon.font = .systemFont(ofSize: 10, weight: .bold)
+        markIcon.textColor = .white
+        markIcon.textAlignment = .center
+        markIcon.layer.cornerRadius = 5
+        markIcon.layer.cornerCurve = .continuous
+        markIcon.layer.masksToBounds = true
+        mark.addSubview(markIcon); mark.addSubview(markText)
+        mark.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapBrand)))   // opens the Vikey app (Tony)
+        mark.isAccessibilityElement = true
+        mark.accessibilityLabel = "Vikey"
+        mark.accessibilityTraits = .button
+        addSubview(mark)
         for i in 0..<3 {
             let b = UIButton(type: .custom)
             b.tag = i
@@ -776,16 +858,50 @@ final class SuggestionBar: UIView {
             addSubview(b); cells.append(b)
         }
         for _ in 0..<2 { let l = UIView(); addSubview(l); lines.append(l) }
+        nudgeView.isHidden = true
+        nudgeView.onAction = { [unowned self] in if let k = nudge { onNudge?(k) } }
+        nudgeView.onClose = { [unowned self] in if let k = nudge { nudge = nil; nudgeView.isHidden = true; restyle(); onNudgeClosed?(k) } }
+        addSubview(nudgeView)
         restyle()
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    @objc private func tapBrand() { onBrand?() }
+
     @objc private func tap(_ b: UIButton) { if b.tag < items.count { onPick?(b.tag) } }
 
-    func show(_ s: [Suggestion]) { items = s; restyle(); setNeedsLayout() }
+    func show(_ s: [Suggestion]) {
+        items = s
+        if !s.isEmpty, nudge != nil { hideNudge() }
+        restyle(); setNeedsLayout()
+    }
+
+    /// Shows a nudge on the empty strip, opening as the corner mark does.
+    func showNudge(_ k: NudgeView.Kind) {
+        guard items.isEmpty else { return }
+        nudge = k
+        nudgeView.dark = dark
+        nudgeView.isHidden = false
+        nudgeView.frame = bounds.insetBy(dx: 2, dy: 2)
+        nudgeView.set(k)
+        restyle()
+        nudgeView.play()
+    }
+    func hideNudge() {
+        guard nudge != nil else { return }
+        nudge = nil
+        nudgeView.fold { [weak self] in self?.nudgeView.isHidden = true; self?.restyle() }
+    }
 
     private func restyle() {
         let fg: UIColor = dark ? .white : .black
+        let indigo: UIColor = dark ? UIColor(red: 0.549, green: 0.529, blue: 1, alpha: 1) : UIColor(red: 0.310, green: 0.275, blue: 0.898, alpha: 1)
+        markIcon.backgroundColor = UIColor(red: 0.310, green: 0.275, blue: 0.898, alpha: 1)   // the app icon's indigo in both modes
+        let word = NSMutableAttributedString(string: "Vi", attributes: [.font: UIFont.systemFont(ofSize: 15, weight: .bold), .foregroundColor: fg])
+        word.append(NSAttributedString(string: "key", attributes: [.font: UIFont.systemFont(ofSize: 15, weight: .bold), .foregroundColor: indigo]))
+        markText.attributedText = word
+        mark.isHidden = !items.isEmpty || !showsBrand || nudge != nil   // only on an empty strip
+        nudgeView.dark = dark
         for (i, b) in cells.enumerated() {
             let it = i < items.count ? items[i] : nil
             let title: String? = it.map {
@@ -811,6 +927,13 @@ final class SuggestionBar: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        markText.sizeToFit()
+        if !nudgeView.isHidden { nudgeView.frame = bounds.insetBy(dx: 2, dy: 2) }
+        let iconSide: CGFloat = 18, gap: CGFloat = 6
+        let mw = iconSide + gap + markText.bounds.width
+        mark.frame = CGRect(x: bounds.width - 14 - mw, y: (bounds.height - iconSide) / 2, width: mw, height: iconSide)
+        markIcon.frame = CGRect(x: 0, y: 0, width: iconSide, height: iconSide)
+        markText.frame = CGRect(x: iconSide + gap, y: (iconSide - markText.bounds.height) / 2, width: markText.bounds.width, height: markText.bounds.height)
         // one wide cell for a single action (✨ Proofread, ↩︎ Undo, "working…"); three otherwise
         if items.count == 1, items[0].kind != .word, items[0].kind != .next {
             cells[0].frame = bounds.insetBy(dx: 2, dy: 2)
@@ -821,5 +944,23 @@ final class SuggestionBar: UIView {
         let w = bounds.width / 3
         for (i, b) in cells.enumerated() { b.frame = CGRect(x: CGFloat(i) * w + 2, y: 2, width: w - 4, height: bounds.height - 4) }
         for (i, l) in lines.enumerated() { l.frame = CGRect(x: CGFloat(i + 1) * w - 0.5, y: bounds.height * 0.28, width: 1, height: bounds.height * 0.44) }
+    }
+}
+
+extension KeyboardView {
+    /// Opens the Vikey app (vikey://). A keyboard can't call UIApplication.shared, so this walks the responder chain
+    /// to the host's UIApplication and calls open(_:options:completionHandler:) on it by selector.
+    func openVikeyApp(_ path: String = "") {
+        guard let url = URL(string: "vikey://\(path)") else { return }
+        let sel = NSSelectorFromString("openURL:options:completionHandler:")
+        var r: UIResponder? = self
+        while let next = r {
+            if next is UIApplication, next.responds(to: sel), let imp = next.method(for: sel) {
+                typealias Open = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, AnyObject?) -> Void
+                unsafeBitCast(imp, to: Open.self)(next, sel, url as NSURL, NSDictionary(), nil)
+                return
+            }
+            r = next.next
+        }
     }
 }

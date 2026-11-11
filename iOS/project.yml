@@ -9,8 +9,8 @@ settings:
     DEVELOPMENT_TEAM: 3H6967F79Y
     SWIFT_VERSION: "5.10"
     CLANG_CXX_LANGUAGE_STANDARD: c++17
-    MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "35"
+    MARKETING_VERSION: "1.0.3"
+    CURRENT_PROJECT_VERSION: "54"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     DEVELOPMENT_LANGUAGE: en
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
@@ -33,6 +33,9 @@ targets:
         CFBundleDisplayName: Vikey
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.devuap.vikey.ios
+            CFBundleURLSchemes: [vikey]   # the keyboard's Vikey mark opens the app
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         CFBundleDevelopmentRegion: en

@@ -5,10 +5,10 @@ Geometry mirrors KeyboardView.kt (402 dp base). Reads the IME window top from du
 import subprocess, sys, re, time
 W, DENS = 1080, 2.625
 def sh(cmd): return subprocess.run(["adb", "shell", cmd], capture_output=True, text=True).stdout
-def ime_top():
+def ime_top(fallback=1655):
     out = sh("dumpsys window windows")
     m = re.search(r"InputMethod\}.*?frame=\[0,(\d+)\]\[1080,2400\]", out, re.S)
-    return int(m.group(1)) if m else 1655
+    return int(m.group(1)) if m else fallback
 def layout(bar_on=True):
     d = DENS; s = W / (402 * d); side = 6.67 * s * d; gap = 6 * s * d; key = (W - 2 * side - 9 * gap) / 10
     top = (11 + 44 - 3) if bar_on else 11; pitch = 54; keyH = 43

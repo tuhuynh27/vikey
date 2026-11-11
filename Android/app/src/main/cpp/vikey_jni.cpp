@@ -56,9 +56,10 @@ JNIEXPORT void JNICALL Java_app_vikey_ime_VikeyDriver_destroy(JNIEnv*, jclass, j
 JNIEXPORT jint JNICALL Java_app_vikey_ime_VikeyDriver_language(JNIEnv*, jclass, jlong) { return vLanguage; }
 JNIEXPORT void JNICALL Java_app_vikey_ime_VikeyDriver_setLanguage(JNIEnv*, jclass, jlong h, jint l) { D(h)->setLanguage(l); }
 JNIEXPORT void JNICALL Java_app_vikey_ime_VikeyDriver_configure(JNIEnv*, jclass, jlong h, jboolean autoSwitch, jdouble pause, jboolean spelling, jboolean restore, jboolean modern) {
-    D(h)->autoSwitch = autoSwitch; vAutoSwitchByTyping = autoSwitch; D(h)->pauseAfterManual = pause;
+    D(h)->autoSwitch = autoSwitch; D(h)->pauseAfterManual = pause;   // not vAutoSwitchByTyping: the driver sets it on the next key, so a pause after a manual switch stays
     vCheckSpelling = spelling; vSetCheckSpelling(); vRestoreIfWrongSpelling = restore; vUseModernOrthography = modern;
 }
+JNIEXPORT void JNICALL Java_app_vikey_ime_VikeyDriver_setTelexStyle(JNIEnv*, jclass, jint style) { vTelexStyle = style < 0 ? 0 : style > 2 ? 2 : style; }   // D56
 JNIEXPORT jstring JNICALL Java_app_vikey_ime_VikeyDriver_typeChar(JNIEnv* env, jclass, jlong h, jchar c, jdouble now) {
     Uint16 key; bool shift;
     if (!keyFor(c, key, shift)) { D(h)->resetContext(); VKEdit e; e.text.push_back((char16_t)c); return packEdit(env, e); }

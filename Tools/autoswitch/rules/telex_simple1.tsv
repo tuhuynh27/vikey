@@ -1,0 +1,16 @@
+# Simple Telex 1 (VIKEY_TELEX_STYLE=1, D56): [ and ] are brackets, a lone w stays w.
+# rule	start(1=VN,0=EN)	keys ('<'=Backspace, '|'=Enter)	expected text	final lang	why
+D56	1	[	[	1	a lone [ is a bracket
+D56	1	]	]	1	a lone ] is a bracket
+D56	1	x[i] 	x[i] 	1	a bracket ends the word, it is not ơ
+D56	1	hocj [ddi] ok 	học [đi] ok 	1	the word after a bracket is typed fresh
+D56	1	tieengs Vieetj]	tiếng Việt]	1	a closing bracket after a word
+D56	1	uw ow 	ư ơ 	1	uw and ow still make ư and ơ
+D56	1	truwowngf 	trường 	1	uow still makes ươ
+D56	1	w 	w 	1	a lone w stays w
+D56	1	tw 	tw 	1	w after a consonant stays w
+D56	1	W	W	1	a lone W stays W
+D56	1	zero[ 	zero[ 	0	a bracket ends the word like . or ,: an English word is put back (not zẻo[)
+D56	1	server] 	server] 	0	a closing bracket after an English word
+D56	1	2[w 	2[w 	1	after a bracket, a lone w stays w
+D56	1	baws 	bắ 	1	aw still makes ă

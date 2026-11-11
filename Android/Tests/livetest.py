@@ -5,7 +5,7 @@ installed, the Vikey IME selected, and the app's main screen open (the "Try the 
 Exit code = number of failures."""
 import subprocess, sys, os, re, time, html
 sys.path.insert(0, os.path.dirname(__file__))
-from tap_type import type_text, sh, ime_top, layout
+from tap_type import type_text, sh, ime_top, layout, DENS
 CASES = os.path.join(os.path.dirname(__file__), "..", "..", "Windows", "Tests", "cases.tsv")
 FIELD_Y = None
 
@@ -26,13 +26,26 @@ def clear_field():
     sh("input keyevent " + " ".join(["112"] * 40) + "; input keyevent " + " ".join(["67"] * 80))   # forward-delete, then delete
     time.sleep(0.4)
 
+def bars_top(top):
+    """Screen y where the lowest bottom bar starts: the system nav bar, or the IME's own back/switcher strip (gesture nav).
+    None when dumpsys shows no nav bar at all: nothing to check against."""
+    frames = re.findall(r"type=(?:navigationBars|ITYPE_NAVIGATION_BAR) frame=\[\d+,(\d+)\]\[\d+,(\d+)\]", sh("dumpsys window"))   # ITYPE_ up to Android 13; no sideHint before 15
+    tops = [int(t) for t, b in frames if int(t) > int(b) / 2]   # a bottom bar starts below the middle; a side bar starts at 0
+    m = re.search(r"mNavigationBarFrame=\S+ \S+ \S+ \d+,(\d+)-", sh("dumpsys input_method"))   # in the IME window's coordinates
+    if m: tops.append(top + int(m.group(1)))
+    if not frames and not m: return None
+    return min(tops, default=1 << 30)   # only side bars: nothing to overlap
+
 def main():
     fx, fy = find_field()
     sh("input tap %d %d" % (fx, fy)); time.sleep(1)
     sh("am broadcast -a app.vikey.DEBUG -p app.vikey --ez autocap false >/dev/null"); time.sleep(0.8)
     sh("input tap %d %d" % (fx, fy)); time.sleep(0.6)
-    top = ime_top(); L = layout()
-    fails = 0; total = 0
+    found = ime_top(None); top = ime_top() if found is None else found; L = layout()
+    fails = 0; total = 0; bars = None if found is None else bars_top(top)   # no IME frame: the typing fallback is no origin to check the bars against
+    clear = None if bars is None else top + L[" "][1] + 43 / 2 * DENS <= bars   # the bottom row's lower edge (keyH 43 dp)
+    if clear is not None: total += 1; fails += not clear
+    print("%-4s %-28s" % ({None: "skip", True: "ok", False: "FAIL"}[clear], "bottom row above the nav bar"))
     for line in open(CASES, encoding="utf-8"):
         if line.startswith("#") or not line.strip(): continue
         name, start, keys, expected = line.rstrip("\n").split("\t")[:4]

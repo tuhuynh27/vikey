@@ -9,7 +9,8 @@ understand the change and have tested it yourself, the same as code you typed by
 
 ## What a pull request needs
 
-1. **Show the problem.** Add a screenshot or a short screen recording of the bug you fix, or of the feature you add.
+1. **Show it.** A new feature or a change of behaviour must include a screenshot or a short demo video of the new
+   behaviour; pull requests without one are not merged. For a bug fix, show the bug.
 2. **Before and after.** In the description, write what happened before your change and what happens after it.
    Short sentences are fine. Example: "Before: typing `os` in Vietnamese gave `os` and switched to English.
    After: it gives `ó`."

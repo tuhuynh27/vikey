@@ -12,6 +12,7 @@
 #include <cmath>
 #include <list>
 #include "AutoSwitchData.h"
+#include "EnglishFormsData.h"
 #include "BigramData.h"
 #include <string>
 #include <unordered_map>
@@ -90,6 +91,7 @@ static Uint32 _asDropKey[AS_MAX_DROPS];
 /** The keys as typed: the key states with the dropped keys put back. Returns how many. */
 static int asStatesWithDrops(Uint32* full, const int& maxN);
 static Byte _stateIndex = 0;
+static bool _statesLost = false; //a word of more than MAX_BUFF keys: KeyStates lost its first keys
 
 static bool tempDisableKey = false;
 static int capsElem;
@@ -140,6 +142,8 @@ void* vKeyInit() {
 bool isWordBreak(const vKeyEvent& event, const vKeyEventState& state, const Uint16& data) {
     if (event == vKeyEvent::Mouse)
         return true;
+    if (vTelexStyle != 0 && (data == KEY_LEFT_BRACKET || data == KEY_RIGHT_BRACKET))   //Simple Telex: brackets are punctuation (D56)
+        return true;
     for (i = 0; i < _breakCode.size(); i++) {
         if (_breakCode[i] == data) {
             return true;
@@ -160,7 +164,45 @@ bool _spellingFlag = false;
 bool _spellingVowelOK = false;
 Byte _spellingEndIndex = 0;
 
+/** Teencode spelling (D53, off by default): chat forms count as Vietnamese so they aren't put back to their keys:
+ *  z / dz for d ("zui zẻ", "zô", "dzô"), the open rimes "ie" ("bíe") and "oy" ("gòy"), and k after i or ư ("thík",
+ *  "ừk"). Idea from VietTelex (MIT). "wá" isn't possible in Telex: w is ư. */
+int vTeencode = 1;   //on by default (Tony, 2026-10-31)
+int vTelexStyle = 0;  //Telex (D56); 1 and 2 are the Simple Telex styles from OpenKey
+#include "TeencodeData.h"
+static bool _teenRule = false;   //this word is valid only by a teencode rule: kept at its end only if it's a known word
+/** Is the word in TypingWord a known teencode word? (letters with ^ / +, tone digit last; see build_teencode.py) */
+static bool asTeenKnown() {
+    char w[MAX_BUFF * 2 + 2]; int n = 0; char tone = 0;
+    for (int x = 0; x < _index && n < (int)sizeof(w) - 3; x++) {
+        Uint16 key = CHR(x); char c = 0;
+        static const Uint16 L[26] = {KEY_A,KEY_B,KEY_C,KEY_D,KEY_E,KEY_F,KEY_G,KEY_H,KEY_I,KEY_J,KEY_K,KEY_L,KEY_M,
+                                     KEY_N,KEY_O,KEY_P,KEY_Q,KEY_R,KEY_S,KEY_T,KEY_U,KEY_V,KEY_W,KEY_X,KEY_Y,KEY_Z};
+        for (int q = 0; q < 26; q++) if (L[q] == key) c = 'a' + q;
+        if (!c) return false;
+        w[n++] = c;
+        if (TypingWord[x] & TONE_MASK) w[n++] = '^';
+        if (TypingWord[x] & TONEW_MASK) w[n++] = '+';
+        Uint32 m = TypingWord[x] & MARK_MASK;
+        if (m) tone = m == MARK1_MASK ? '1' : m == MARK2_MASK ? '2' : m == MARK3_MASK ? '3' : m == MARK4_MASK ? '4' : '5';
+    }
+    if (tone) w[n++] = tone;
+    w[n] = 0;
+    int lo = 0, hi = kTeencodeCount - 1;
+    while (lo <= hi) { int mid = (lo + hi) / 2; int c = strcmp(kTeencodeWords[mid], w); if (!c) return true; if (c < 0) lo = mid + 1; else hi = mid - 1; }
+    return false;
+}
+static bool asTeencodeVowels(const int& from, const int& to) {
+    if (!vTeencode || to - from != 2) return false;
+    Uint16 a = CHR(from), b = CHR(from + 1);
+    bool plainA = !(TypingWord[from] & (TONE_MASK | TONEW_MASK)), plainB = !(TypingWord[from + 1] & (TONE_MASK | TONEW_MASK));
+    Uint32 mark = TypingWord[from] & MARK_MASK;
+    //"oy" only plain or with huyền ("gòy" = rồi): "oxy" -> "õy", "boxy" -> "bõy" would hit English words
+    return plainA && plainB && ((a == KEY_I && b == KEY_E) || (a == KEY_O && b == KEY_Y && (!mark || mark == MARK2_MASK)));
+}
+
 void checkSpelling(const bool& forceCheckVowel=false) {
+    _teenRule = false;
     _spellingOK = false;
     _spellingVowelOK = true;
     _spellingEndIndex = _index;
@@ -172,7 +214,9 @@ void checkSpelling(const bool& forceCheckVowel=false) {
     if (_spellingEndIndex > 0) {
         j = 0;
         //Check first consonant
-        if (IS_CONSONANT(CHR(0))) {
+        if (vTeencode && CHR(0) == KEY_Z) { j = 1; _teenRule = true; }                                                   //teencode: z = d
+        else if (vTeencode && _spellingEndIndex > 1 && CHR(0) == KEY_D && CHR(1) == KEY_Z) { j = 2; _teenRule = true; }  //dz = d
+        else if (IS_CONSONANT(CHR(0))) {
             for (i = 0; i < _consonantTable.size(); i++) {
                 _spellingFlag = false;
                 if (_spellingEndIndex < _consonantTable[i].size())
@@ -234,6 +278,7 @@ void checkSpelling(const bool& forceCheckVowel=false) {
             } else if (!IS_CONSONANT(CHR(j))) {
                 _spellingVowelOK = true;
             }
+            if (!_spellingVowelOK && asTeencodeVowels(j, k) && k == _spellingEndIndex) { _spellingVowelOK = true; _teenRule = true; }   //bíe, gòy (open)
             
             //continue check last consonant
             for (ii = 0; ii < _endConsonantTable.size(); ii++) {
@@ -255,6 +300,10 @@ void checkSpelling(const bool& forceCheckVowel=false) {
                 }
             }
             
+            if (!_spellingOK && vTeencode && k + 1 == _spellingEndIndex && CHR(k) == KEY_K && k > 0 &&
+                (CHR(k - 1) == KEY_I || (CHR(k - 1) == KEY_U && (TypingWord[k - 1] & TONEW_MASK))))
+                { _spellingOK = true; _teenRule = true; }                                             //thík, ừk
+            if (!_spellingOK && vTeencode && asTeencodeVowels(VSI, k) && k == _spellingEndIndex) { _spellingOK = true; _teenRule = true; }
             //limit: end consonant "ch", "t" can not use with "~", "`", "?"
             if (_spellingOK) {
                 if (_index >= 3 && CHR(_index-1) == KEY_H && CHR(_index-2) == KEY_C && !((TypingWord[_index-3] & MARK1_MASK) || (TypingWord[_index-3] & MARK5_MASK) || !(TypingWord[_index-3] & MARK_MASK))) {
@@ -267,6 +316,8 @@ void checkSpelling(const bool& forceCheckVowel=false) {
     } else {
         _spellingOK = true;
     }
+    //the end of the word: a teencode-only spelling stays only if it's a known teencode word ("zero" isn't "zẻo")
+    if (forceCheckVowel && _teenRule && _spellingOK && _spellingVowelOK && !asTeenKnown()) _spellingOK = false;
     tempDisableKey = !(_spellingOK && _spellingVowelOK);
     
     //cout<<"spelling vowel: "<<(_spellingVowelOK ? "OK": "Err")<<endl;
@@ -352,8 +403,38 @@ void insertKey(const Uint16& keyCode, const bool& isCaps, const bool& isCheckSpe
         tempDisableKey = false;
 }
 
+/** Makes the typed keys match the word on screen again: the keys a person would type for TypingWord[0.._index)
+ *  (letter, then its vowel key, the tone key last). After Backspace took a letter that was made from several keys
+ *  ("có" ⌫ took o and s), the key list still had some of them, so the next key worked on a word that wasn't there
+ *  ("có" ⌫ o gave "coo", D50). */
+static bool asResyncStates() {   //false: the keys couldn't be rebuilt for the whole word
+    static const Uint16 toneKeys[5] = {KEY_S, KEY_F, KEY_R, KEY_X, KEY_J};
+    Uint32 tone = 0, up = _index > 1 ? CAPS_MASK : 0; int n = 0, x = 0;   //a lone capital was likely Shift: "Oof" stays "Oof"
+    for (int y = 0; y < _index; y++) up &= TypingWord[y];   //an all-caps word (Caps Lock): its vowel and tone keys were capitals too ("VIEEJT" gave "VIEeTj")
+    for (; x < _index && n < MAX_BUFF - 3; x++) {
+        Uint32 c = TypingWord[x];
+        if (c & CHAR_CODE_MASK) return false;              //a character the keys can't rebuild: leave the list alone
+        Uint32 caps = c & CAPS_MASK;
+        if ((c & STANDALONE_MASK) && (c & TONEW_MASK)) { KeyStates[n++] = KEY_W | caps; }
+        else {
+            KeyStates[n++] = CHR(x) | caps;
+            if (c & TONE_MASK) KeyStates[n++] = CHR(x) | up;     //â ê ô đ: the letter twice
+            if (c & TONEW_MASK) KeyStates[n++] = KEY_W | up;     //ă ơ ư
+        }
+        if (c & MARK_MASK) tone = c & MARK_MASK;
+    }
+    if (tone) {
+        int m = tone == MARK1_MASK ? 0 : tone == MARK2_MASK ? 1 : tone == MARK3_MASK ? 2 : tone == MARK4_MASK ? 3 : 4;
+        KeyStates[n++] = toneKeys[m] | up;
+    }
+    _stateIndex = n;
+    _asDropN = 0;
+    return x == _index;                                    //false: the word was longer than the key list holds
+}
+
 void insertState(const Uint16& keyCode, const bool& isCaps) {
     if (_stateIndex >= MAX_BUFF) {
+        _statesLost = true;
         //left shift
         for (iii = 0; iii < MAX_BUFF - 1; iii++) {
             KeyStates[iii] = KeyStates[iii + 1];
@@ -363,6 +444,11 @@ void insertState(const Uint16& keyCode, const bool& isCaps) {
         KeyStates[_stateIndex++] = keyCode | (isCaps ? CAPS_MASK : 0);
     }
 }
+
+/** The word can be put back to its keys: KeyStates has all of them, and the apps can delete it (they send
+ *  fewer than MAX_BUFF backspaces). A longer word stays as Telex made it (restoring it lost its first letter, or
+ *  typed it twice). */
+static bool wordFitsBuffer() { return !_statesLost && _index < MAX_BUFF; }
 
 void saveWord() {
     //save word history
@@ -425,31 +511,23 @@ void restoreLastTypingState() {
                     TypingWord[i] = _typingStatesData[i];
                 }
                 _index = (Byte)_typingStatesData.size();
+                //the word is back after Backspace took the punctuation behind it ("việt." ⌫): its keys must come back
+                //too, or a restore at the next space put back only the keys typed since ("việt." ⌫ "nam " gave "nam")
+                _stateIndex = 0;
+                _statesLost = !asResyncStates();   //keys can't be rebuilt for the whole word: never restore it
             }
         }
     }
 }
 
-/// The words kept for going back into with Backspace were typed in one language. After a switch the screen holds
-/// words the engine never saw (typed in the other mode), so the history no longer matches it: "xin ⌥Z hello ⌥Z ⌫ s"
-/// reopened "xin" and gave "heín" (Tony; D44).
-static int _historyLanguage = -1;
-static void forgetHistoryIfLanguageChanged() {
-    if (vLanguage == _historyLanguage) return;
-    _historyLanguage = vLanguage;
-    _typingStatesData.clear();
-    _typingStates.clear();
-    _longWordHelper.clear();
-}
-
 void startNewSession() {
-    forgetHistoryIfLanguageChanged();
     _asDropN = 0;
     _index = 0;
     hBPC = 0;
     hNCC = 0;
     tempDisableKey = false;
     _stateIndex = 0;
+    _statesLost = false;
     _longWordHelper.clear();
 }
 
@@ -461,7 +539,10 @@ void checkCorrectVowel(vector<vector<Uint16>>& charset, int& i, int& k, const Ui
     }
     k = _index - 1;
     for (j = (int)charset[i].size() - 1; j >= 0; j--) {
-        if (charset[i][j] != CHR(k)) {
+        //teencode (D53): the k / y entries marked END_CONSONANT_MASK count ("thík", "ừk", "gòy")
+        bool teen = vTeencode && (charset[i][j] & END_CONSONANT_MASK) &&
+                    (Uint16)(charset[i][j] & ~END_CONSONANT_MASK) == CHR(k) && (CHR(k) == KEY_K || (CHR(k) == KEY_Y && IS_KEY_F(markKey)));
+        if (charset[i][j] != CHR(k) && !teen) {
             isCorect = false;
             return;
         }
@@ -757,6 +838,10 @@ void insertMark(const Uint32& markMask, const bool& canModifyFlag) {
             handleOldMark();
         else
             handleModernMark();
+        if (vTeencode && vowelCount == 2 && CHR(VSI) == KEY_O && CHR(VEI) == KEY_Y && VEI == VSI + 1) {   //teencode "gòy": on the o
+            VWSM = VSI;
+            hBPC = _index - VWSM;
+        }
         if (TypingWord[VEI] & TONE_MASK || TypingWord[VEI] & TONEW_MASK)
             vowelWillSetMark = VEI;
     }
@@ -971,7 +1056,9 @@ void insertW(const Uint16& data, const bool& isCaps) {
     }
 }
 
+static bool _appendedStandalone = false;   //this key only added ư/ơ at the end: it isn't on screen yet (D52)
 void reverseLastStandaloneChar(const Uint32& keyCode, const bool& isCaps) {
+    _appendedStandalone = true;
     hCode = vWillProcess;
     hBPC = 0;
     hNCC = 1;
@@ -982,7 +1069,7 @@ void reverseLastStandaloneChar(const Uint32& keyCode, const bool& isCaps) {
 
 static bool _afterDigit = false;   //the word started right after a digit: a lone w is a unit (100W), not ư (D33)
 void checkForStandaloneChar(const Uint16& data, const bool& isCaps, const Uint32& keyWillReverse) {
-    if (CHR(_index - 1) == keyWillReverse && TypingWord[_index - 1] & TONEW_MASK) {
+    if (_index > 0 && CHR(_index - 1) == keyWillReverse && TypingWord[_index - 1] & TONEW_MASK) {   //w, [ or ] can start a word
         hCode = vWillProcess;
         hBPC = 1;
         hNCC = 1;
@@ -1143,7 +1230,7 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
     }
     
     if (!isChanged) {
-        if (data == KEY_W) {
+        if (data == KEY_W && vTelexStyle != 1) {   //Simple Telex 1: a w that joins no vowel stays w (D56)
             checkForStandaloneChar(data, isCaps, KEY_U);
         } else {
             insertKey(data, isCaps);
@@ -1154,6 +1241,7 @@ void handleMainKey(const Uint16& data, const bool& isCaps) {
 
 static int asStatesWithDrops(Uint32* full, const int& maxN);
 bool checkRestoreIfWrongSpelling(const int& handleCode) {
+    if (!wordFitsBuffer()) return false;
     for (ii = 0; ii < _index; ii++) {
         if (!IS_CONSONANT(CHR(ii)) &&
             (TypingWord[ii] & MARK_MASK || TypingWord[ii] & TONE_MASK || TypingWord[ii] & TONEW_MASK)) {
@@ -1231,10 +1319,19 @@ struct AsWord {
 };
 static AsWord _asPrev[AS_LOOKBACK_WORDS];
 static int _asPrevCount = 0;
+static Uint32 _asConverted[MAX_BUFF]; static int _asConvertedN = 0;   //the word auto switch just put in Vietnamese
+static void navForget();
 
 void vAutoSwitchForget() {
+    navForget();   //and the word kept for a ← → round trip (D51): after a switch or a click → would bring it back elsewhere
     _asPrevCount = 0;
     _asWordStartOk = true;   //a fresh context (language switched, app changed): the next word stands on its own
+    _afterDigit = false;     //not after a digit either: the one before the switch may be far back ("1" ⌥Z "abc " ⌥Z "wa" gave "wa", D33)
+    _spaceCount = 0; _specialChar.clear(); _typingStates.clear();   //and Backspace can't reopen a word from before it
+    if (_asConvertedN > 0) {   //except the word auto switch just turned Vietnamese: it is on screen before the break key,
+        //so Backspace over that key reopens it like a word typed in Vietnamese ("treen " ⌫ + s -> "trến")
+        _typingStates.push_back(vector<Uint32>(_asConverted, _asConverted + _asConvertedN)); _spaceCount = 1; _asConvertedN = 0;
+    }
 }
 
 static void asInitLetters() {
@@ -1263,17 +1360,44 @@ static int asLookup(const char* words, const unsigned int* offsets, const signed
 }
 
 static inline int asVietnameseScore(const char* key) {
-    return asLookup(kAutoSwitchVnWords, kAutoSwitchVnOffsets, kAutoSwitchVnScores, kAutoSwitchVnCount, key);
+    int v = asLookup(kAutoSwitchVnWords, kAutoSwitchVnOffsets, kAutoSwitchVnScores, kAutoSwitchVnCount, key);
+    if (v == AS_MISSING && vTeencode) {   //teencode on: its words count as Vietnamese with their own frequency (D53)
+        int lo = 0, hi = kTeencodeVnCount - 1;
+        while (lo <= hi) { int mid = (lo + hi) >> 1; int c = strcmp(kTeencodeVnKeys[mid], key);
+            if (!c) return kTeencodeVnScores[mid]; if (c < 0) lo = mid + 1; else hi = mid - 1; }
+    }
+    return v;
+}
+
+static inline int asEnglishLookup(const char* word) {
+    return asLookup(kAutoSwitchEnWords, kAutoSwitchEnOffsets, kAutoSwitchEnScores, kAutoSwitchEnCount, word);
+}
+
+/** A real English word form the list (subtitles) is missing: "resets", "quests" (D60; SCOWL en_US forms,
+ *  Tools/autoswitch/build_forms.py). It counts as English, rarer than every listed word, and never when its
+ *  letters are a Vietnamese word: "phis" (Greek letters) is phí. */
+#define AS_EN_FORM_SCORE (-8)
+static int asEnglishForm(const char* word) {
+    if (asVietnameseScore(word) != AS_MISSING) return AS_MISSING;
+    int lo = 0, hi = kEnglishFormsCount - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        int c = strcmp(kEnglishFormsWords + kEnglishFormsOffsets[mid], word);
+        if (c == 0) return AS_EN_FORM_SCORE;
+        if (c < 0) lo = mid + 1; else hi = mid - 1;
+    }
+    return AS_MISSING;
 }
 
 static inline int asEnglishScore(const char* word) {
-    return asLookup(kAutoSwitchEnWords, kAutoSwitchEnOffsets, kAutoSwitchEnScores, kAutoSwitchEnCount, word);
+    int s = asEnglishLookup(word);
+    return s != AS_MISSING ? s : asEnglishForm(word);
 }
 
 /** Normalized key of the word in TypingWord; transformed = it has a tone, ^, w-horn/breve or đ. */
 static bool asWordKey(char* out, bool& transformed) {
     transformed = false;
-    if (_index == 0 || _longWordHelper.size() > 0) return false;
+    if (_index == 0 || !wordFitsBuffer()) return false;
     int n = 0;
     char tone = 0;
     for (int x = 0; x < _index; x++) {
@@ -1528,7 +1652,45 @@ static int asStatesWithDrops(Uint32* full, const int& maxN) {
     return n;
 }
 
-static bool asShouldRestoreToEnglishCore() {
+// A case boundary inside the typed word is evidence for an identifier.
+static bool asHasInternalCapital(const Uint32* keys, int count) {
+    for (int i = 1; i < count; ++i)
+        if ((keys[i] & CAPS_MASK) && !(keys[i-1] & CAPS_MASK)) return true;
+    return false;
+}
+
+// A single Vietnamese syllable has one vowel nucleus. Ignore keys that
+// can be Telex modifiers (including z to remove a tone), so editing
+// a tone does not create a false boundary between vowel groups. In the
+// English doubled-key path, z remains literal evidence rather than an edit.
+static bool asHasSeparatedVowels(const Uint32* keys, int count, bool telexToneEdits) {
+    bool sawVowel = false, afterConsonant = false;
+    for (int i = 0; i < count; ++i) {
+        const char c = asLetterOf(keys[i]);
+        if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'y') {
+            if (afterConsonant) return true;
+            sawVowel = true;
+        } else if (sawVowel && c && c != 's' && c != 'f' && c != 'r' &&
+                   c != 'x' && c != 'j' && c != 'w' && (c != 'z' || !telexToneEdits)) {
+            afterConsonant = true;
+        }
+    }
+    return false;
+}
+
+// Classify an unlisted literal only after excluding explicit Telex modifiers.
+static bool asHasLiteralWordShape(const Uint32* keys, int count, bool telexToneEdits) {
+    // Explicit Telex modifiers remain evidence for an unlisted Vietnamese
+    // syllable or a Vietnamese typo, even with a late modifier ("mawca").
+    for (int i = 1; i < count; ++i) {
+        const char c = asLetterOf(keys[i]), previous = asLetterOf(keys[i-1]);
+        if (c == 'w' || (c == previous && (c == 'a' || c == 'e' || c == 'o' || c == 'd')))
+            return false;
+    }
+    return asHasInternalCapital(keys, count) || asHasSeparatedVowels(keys, count, telexToneEdits);
+}
+
+static bool asShouldRestoreToEnglishCore(bool& literalOnly) {
     if (!asEnabled() || !_asWordStartOk) return false;
     asInitLetters();
     if (_stateIndex < 2 || _stateIndex < _index) return false;
@@ -1628,12 +1790,17 @@ static bool asShouldRestoreToEnglishCore() {
         if (vowelGroups <= 1)
             for (int x = 0; x < _index; x++) if (TypingWord[x] & (TONE_MASK | TONEW_MASK)) return false;
 #endif
-        //rare but valid syllables (riệt, chịt) are not in the list: require the spelling rules to fail too
+        // Restore an unknown literal only with positive evidence: the
+        // rendered spelling fails, or the original looks like a multi-syllable
+        // word or identifier. Recognized Vietnamese is handled above.
+        // Rare but valid syllables (riệt, chịt) may be absent from the list.
         bool savedTemp = tempDisableKey;
         checkSpelling(true);
         bool invalid = tempDisableKey;
         tempDisableKey = savedTemp;
-        return invalid;
+        if (invalid) return true;
+        literalOnly = asHasLiteralWordShape(KeyStates, _stateIndex, true);
+        return literalOnly;
     }
 #else
     if (en == AS_MISSING) return false;
@@ -1663,8 +1830,9 @@ static bool asShouldRestoreToEnglishCore() {
 
 /** Whether to put the word back to the keys typed. A foreign word restored as typed gets back the keys
  *  Telex undid on the way too ("deepseek", not "deepsek"); a known English word without them stays. */
-static bool asShouldRestoreToEnglish() {
-    if (!asShouldRestoreToEnglishCore()) return false;
+static bool asShouldRestoreToEnglish(bool& literalOnly) {
+    literalOnly = false;
+    if (!asShouldRestoreToEnglishCore(literalOnly)) return false;
     if (_asDropN > 0 && _stateIndex >= 3 && _stateIndex + _asDropN < MAX_BUFF - 1) {
         char raw[AS_KEY_LEN];
         Uint32 full[MAX_BUFF];
@@ -1700,7 +1868,7 @@ static bool asHyphenRestore() {
 bool vAutoSwitchPrevRestored = false;        //previous[0] of the next English-word check is a word auto switch put back to English
 Uint32 vAutoSwitchRestoredKeys[MAX_BUFF];   //the keys of the word just put back to English (D35: a later word can look back on it)
 int vAutoSwitchRestoredCount = 0;
-static void asRestoreToEnglish(const int& handleCode) {
+static void asRestoreToEnglish(const int& handleCode, bool literalOnly) {
     vAutoSwitchRestoredCount = 0;
     if (_stateIndex > 0 && _stateIndex < MAX_BUFF) {
         memcpy(vAutoSwitchRestoredKeys, KeyStates, _stateIndex * sizeof(Uint32));
@@ -1711,7 +1879,7 @@ static void asRestoreToEnglish(const int& handleCode) {
     //words before ("bên ASL", "của USA" stay Vietnamese: Tony, D42)
     int back = 0, newCount = _stateIndex, deleteCount = _index;
     bool acronym = !asFewCapitals(KeyStates, _stateIndex);
-    while (!acronym && back < _asPrevCount && _asPrev[back].lookbackOk &&
+    while (!literalOnly && !acronym && back < _asPrevCount && _asPrev[back].lookbackOk &&
            newCount + _asPrev[back].rawCount + 1 < MAX_BUFF && deleteCount + _asPrev[back].shownCount + 1 < MAX_BUFF) {
         newCount += _asPrev[back].rawCount + 1;
         deleteCount += _asPrev[back].shownCount + 1;
@@ -1753,14 +1921,15 @@ static bool asIsSwitchBreak(const vKeyEvent& event, const Uint16& data, const Ui
     return data == KEY_COMMA || data == KEY_DOT || data == KEY_SEMICOLON || data == KEY_ENTER || data == KEY_RETURN ||
            data == KEY_QUOTE ||                                 //closing quote, or an apostrophe: doesn't, we're
            (data == KEY_SLASH && capsStatus == 1) || (data == KEY_1 && capsStatus == 1) || (data == KEY_0 && capsStatus == 1) ||
-           (data == KEY_9 && capsStatus == 1);                  //"(" right after a word: web(làm (D27)
+           (data == KEY_9 && capsStatus == 1) ||                //"(" right after a word: web(làm (D27)
+           (vTelexStyle != 0 && (data == KEY_LEFT_BRACKET || data == KEY_RIGHT_BRACKET));   //Simple Telex brackets, like ( ) (D56)
 }
 
 /** Everything the engine keeps between keys, so a word can be replayed on a scratch session. */
 struct AsEngineState {
     Uint32 word[MAX_BUFF], states[MAX_BUFF];
     Byte index, stateIndex;
-    bool tempDisable, useSpellingBefore, wordStartOk;
+    bool tempDisable, useSpellingBefore, wordStartOk, statesLost;
     int dropN; int dropPos[AS_MAX_DROPS]; Uint32 dropKey[AS_MAX_DROPS];
     int spaceCount, checkSpelling, language;
     vector<Uint32> longWord, special, statesData;
@@ -1771,7 +1940,7 @@ struct AsEngineState {
 static void asSaveState(AsEngineState& st) {
     memcpy(st.word, TypingWord, sizeof(TypingWord));
     memcpy(st.states, KeyStates, sizeof(KeyStates));
-    st.index = _index; st.stateIndex = _stateIndex;
+    st.index = _index; st.stateIndex = _stateIndex; st.statesLost = _statesLost;
     st.tempDisable = tempDisableKey; st.useSpellingBefore = _useSpellCheckingBefore;
     st.wordStartOk = _asWordStartOk;
     st.dropN = _asDropN; memcpy(st.dropPos, _asDropPos, sizeof(_asDropPos)); memcpy(st.dropKey, _asDropKey, sizeof(_asDropKey));
@@ -1787,7 +1956,7 @@ static void asSaveState(AsEngineState& st) {
 static void asRestoreState(AsEngineState& st) {
     memcpy(TypingWord, st.word, sizeof(TypingWord));
     memcpy(KeyStates, st.states, sizeof(KeyStates));
-    _index = st.index; _stateIndex = st.stateIndex;
+    _index = st.index; _stateIndex = st.stateIndex; _statesLost = st.statesLost;
     tempDisableKey = st.tempDisable; _useSpellCheckingBefore = st.useSpellingBefore;
     _asWordStartOk = st.wordStartOk;
     _asDropN = st.dropN; memcpy(_asDropPos, st.dropPos, sizeof(_asDropPos)); memcpy(_asDropKey, st.dropKey, sizeof(_asDropKey));
@@ -1809,7 +1978,7 @@ void vTestFreeState(void* p) { delete (AsEngineState*)p; }
 
 /** Replays raw keys through the Telex engine on a scratch session. Returns the Vietnamese score of
  *  the result (AS_MISSING if it isn't a real syllable or nothing changed) and the result characters. */
-static int asReplay(const Uint32* keys, const int& count, Uint32* result, int& resultCount, bool* changed = NULL) {
+static int asReplay(const Uint32* keys, const int& count, Uint32* result, int& resultCount, bool* changed = NULL, Uint32* states = NULL) {
     resultCount = 0;
     AsEngineState saved;
     asSaveState(saved);
@@ -1826,7 +1995,7 @@ static int asReplay(const Uint32* keys, const int& count, Uint32* result, int& r
     if (keyOk && transformed) {
         vn = asVietnameseScore(word);
         if (vn != AS_MISSING) {
-            for (int x = 0; x < _index; x++) result[resultCount++] = GET(TypingWord[x]);
+            for (int x = 0; x < _index; x++) { if (states) states[x] = TypingWord[x]; result[resultCount++] = GET(TypingWord[x]); }
         }
     }
     asRestoreState(saved);
@@ -1859,7 +2028,8 @@ bool vAutoSwitchCheckEnglishWord(const Uint32* keys, const int& count,
 
     Uint32 result[MAX_BUFF];
     int resultCount;
-    int vn = asReplay(keys, count, result, resultCount);
+    Uint32 states[MAX_BUFF];   //the engine's own form of the result, for Backspace after the switch
+    int vn = asReplay(keys, count, result, resultCount, NULL, states);
     //word pairs (D30): "cho con bus" -> bú, "the bus" stays
     int pairVote = 0;
     if ((_asBigramWeight > 0 || _asTrigrams) && en != AS_MISSING && vn != AS_MISSING && previousN >= 1 && previousCounts[0] >= 1) {
@@ -1950,6 +2120,7 @@ bool vAutoSwitchCheckEnglishWord(const Uint32* keys, const int& count,
     }
     for (int x = 0; x < resultCount; x++) out[n++] = result[x];
     for (int x = 0; x < count; x++) vAutoSwitchUndoData[vAutoSwitchUndoCount++] = keys[x];
+    memcpy(_asConverted, states, resultCount * sizeof(Uint32)); _asConvertedN = resultCount;   //vAutoSwitchForget picks it up when the app switches
 
     hCode = vRestore;          //platform sends the new text, then the break key itself
     hBPC = (Byte)deleteCount;
@@ -1965,14 +2136,41 @@ bool vAutoSwitchCheckEnglishWord(const Uint32* keys, const int& count) {
 /*==========================================================================================================*/
 
 
+/** ← then → back to the same spot inside a word: the word is still the one being typed (D51). The engine keeps its
+ *  state from before the first ← and puts it back when the cursor returns, instead of starting a new word there
+ *  ("th ← → if" gave "thif"). Only plain arrows within the word count; anything else forgets it. */
+static AsEngineState* _navSaved = NULL;
+static int _navOffset = 0;      //how far left of the word's end the cursor is (≤ 0)
+static int _navPrevCount = 0;  //the look-back words (they're before the word's end, not before the cursor while away)
+static void navForget() { if (_navSaved) { delete _navSaved; _navSaved = NULL; } _navOffset = 0; }
+
 void vKeyHandleEvent(const vKeyEvent& event,
                      const vKeyEventState& state,
                      const Uint16& data,
                      const Uint8& capsStatus,
                      const bool& otherControlKey) {
-    forgetHistoryIfLanguageChanged();   // a switch an app made without starting a new session
+    if (event == vKeyEvent::Keyboard && (data == KEY_LEFT || data == KEY_RIGHT) && capsStatus != 1 && !otherControlKey) {
+        if (data == KEY_LEFT && _navOffset == 0 && (_index > 0 || _spaceCount > 0)) {   //in a word, or right after one
+            navForget(); _navSaved = new AsEngineState(); asSaveState(*_navSaved);
+            _navPrevCount = _asPrevCount; _asPrevCount = 0;   //away from the word, look-back must not reach the old words
+            //asSaveState moved the history out: the word is gone from the live state until the cursor comes back
+            _navOffset = -1;
+            startNewSession();
+            hCode = vDoNothing; hBPC = 0; hNCC = 0; hExt = 1;
+            return;
+        }
+        if (_navSaved && data == KEY_LEFT) { _navOffset--; hCode = vDoNothing; hBPC = 0; hNCC = 0; hExt = 1; return; }
+        if (_navSaved && data == KEY_RIGHT) {
+            if (++_navOffset == 0) { asRestoreState(*_navSaved); delete _navSaved; _navSaved = NULL; _asPrevCount = _navPrevCount; }   //back at the word's end
+            hCode = vDoNothing; hBPC = 0; hNCC = 0; hExt = 1;
+            return;
+        }
+    }
+    if (_navSaved) navForget();
+    _appendedStandalone = false;
     _isCaps = (capsStatus == 1 || //shift
                capsStatus == 2); //caps lock
+    bool literalOnly = false;
     if ((IS_NUMBER_KEY(data) && capsStatus == 1)
         || otherControlKey || isWordBreak(event, state, data) || (IS_NUMBER_KEY(data) && (_index == 0 || _spaceCount > 0))) {   //a digit after a space starts a new word: "mua 1casi" -> "1cái" (D33); glued to letters (abc1def) it stays part of them
         hCode = vDoNothing;
@@ -1981,11 +2179,13 @@ void vKeyHandleEvent(const vKeyEvent& event,
         hExt = 1; //word break
         
         _asApostrophe = data == KEY_QUOTE && capsStatus != 1;
-        bool asSwitch = (asIsSwitchBreak(event, data, capsStatus, otherControlKey) && asShouldRestoreToEnglish()) ||
-                        (data == KEY_MINUS && capsStatus != 1 && !otherControlKey && asHyphenRestore());
+        //after a space the word was already checked at the space: a later ( . , etc. must not reach back over the space
+        //("zẻo" space "(" gave "zzero(", D53; same as the hyphen in D52)
+        bool asSwitch = (asIsSwitchBreak(event, data, capsStatus, otherControlKey) && _spaceCount == 0 && asShouldRestoreToEnglish(literalOnly)) ||
+                        (data == KEY_MINUS && capsStatus != 1 && !otherControlKey && _spaceCount == 0 && asHyphenRestore());   //a hyphen after a space isn't part of the word ("wr -" gave "wr wr-", D52)
         _asApostrophe = false;
         if (asSwitch) {
-            asRestoreToEnglish(vRestoreAndStartNewSession); //auto switch: an English word typed in Vietnamese mode
+            asRestoreToEnglish(vRestoreAndStartNewSession, literalOnly); //auto switch: an English word typed in Vietnamese mode
         } else if (vRestoreIfWrongSpelling && isWordBreak(event, state, data)) { //restore key if wrong spelling with break-key
             if (!tempDisableKey && vCheckSpelling) {
                 checkSpelling(true); //force check spelling
@@ -2010,7 +2210,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
             hExt = 3;//normal word
         }
         
-        if (hCode == vDoNothing) {
+        if (hCode == vDoNothing || event == vKeyEvent::Mouse) {   //a click: the apps drop the restore, so nothing calls startNewSession for it
             startNewSession();
             vCheckSpelling = _useSpellCheckingBefore;
         }
@@ -2025,8 +2225,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
         if (!tempDisableKey && vCheckSpelling) {
             checkSpelling(true); //force check spelling
         }
-        if (asShouldRestoreToEnglish()) { //auto switch: an English word typed in Vietnamese mode
-            asRestoreToEnglish(vRestore);
+        if (asShouldRestoreToEnglish(literalOnly)) { //auto switch: an English word typed in Vietnamese mode
+            asRestoreToEnglish(vRestore, literalOnly);
             _spaceCount++;
         } else if (vRestoreIfWrongSpelling && tempDisableKey) { //restore key if wrong spelling
             if (!checkRestoreIfWrongSpelling(vRestore)) {
@@ -2037,8 +2237,9 @@ void vKeyHandleEvent(const vKeyEvent& event,
             hCode = vDoNothing;
             _spaceCount++;
         }
-        //look-back memory: only words separated by a single space count
-        if (hCode == vDoNothing && _spaceCount == 1) asRememberWord(); else if (_spaceCount > 1) _asPrevCount = 0;
+        //look-back memory: only words separated by a single space count. A word put back as typed ("tooib") isn't
+        //remembered, so it ends the history: else look-back takes the word before it as adjacent ("thí tothis makes")
+        if (hCode == vDoNothing && _spaceCount == 1) asRememberWord(); else _asPrevCount = 0;
         //save word
         if (_spaceCount == 1) {
             if (_specialChar.size() > 0) {
@@ -2070,6 +2271,11 @@ void vKeyHandleEvent(const vKeyEvent& event,
             }
             if (_index > 0){
                 _index--;
+                //the letter that went was made from several keys and what's left is plain letters: the keys are those letters
+                bool several = (TypingWord[_index] & (TONE_MASK | TONEW_MASK | MARK_MASK)) != 0;
+                bool plain = true;
+                for (int x = 0; x < _index && plain; x++) plain = (TypingWord[x] & (TONE_MASK | TONEW_MASK | MARK_MASK | STANDALONE_MASK | CHAR_CODE_MASK)) == 0;
+                if (several && plain && _longWordHelper.empty()) asResyncStates();
                 if (_longWordHelper.size() > 0) {
                     //right shift
                     for (i = MAX_BUFF - 1; i > 0; i--) {
@@ -2126,7 +2332,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 //("tomorr", not "tômrr"). The second press is added after these by the caller (vRestore).
                 //Like other Telex input methods the first press goes ("ver"), unless both make an English word
                 //already ("err", "boss"); the end of the word decides for good (D19, vAutoSwitchFixDoubledKey).
-                if (_stateIndex >= 2 && _stateIndex <= MAX_BUFF && _index <= MAX_BUFF) {
+                if (_stateIndex >= 2 && wordFitsBuffer()) {   //a longer word gets the plain Telex undo
                     int first = -1;                                  //the press that set the tone
                     for (int x = _stateIndex - 2; x >= 0; x--)
                         if ((KeyStates[x] & CHAR_MASK) == data) { first = x; break; }
@@ -2147,7 +2353,9 @@ void vKeyHandleEvent(const vKeyEvent& event,
         }
 
         if (!IS_KEY_D(data)) {
-            if (hCode == vDoNothing) {
+            //moving the tone onto a just-added ư ("ís" + w -> "iứ"): that ư isn't on screen yet, so one fewer to delete
+            //(it took the space before the word: "ab isw" gave "abiứ", D52)
+            if (hCode == vDoNothing || _appendedStandalone) {
                 checkGrammar(-1);
             } else {
                 checkGrammar(0);
@@ -2201,8 +2409,17 @@ bool vAutoSwitchFixDoubledKey(const Uint32* keys, const int& count) {
     const Uint32* fixed;
     int fixedCount;
     if (_asDoubleBoth && !enFull && enSingle) { fixed = single; fixedCount = m; }            //"mixx" -> "mix"
-    else if (!_asDoubleBoth && enFull && !enSingle) { fixed = full; fixedCount = total; }   //"terible" -> "terrible"
-    else if (!_asDoubleBoth && !enSingle && !asFewCapitals(full, total)) { fixed = full; fixedCount = total; }   //ASUS, not "AUS"
+    else if (!_asDoubleBoth &&
+             (enFull || (!enSingle && (!asFewCapitals(full, total) ||
+                                       asHasInternalCapital(full, total) ||
+                                       asHasLiteralWordShape(full, total, false))))) {
+        // Keep a recognized literal even when deleting the key also spells
+        // an English word. For unknown words require structural evidence.
+        // This path already undid a doubled key into English; retain case
+        // evidence here even when the identifier also contains a Telex key.
+        fixed = full;
+        fixedCount = total;
+    }
     else return false;
     if (fixedCount < 1) return false;
     vAutoSwitchUndoCount = 0;   //Backspace right after puts back what was on screen

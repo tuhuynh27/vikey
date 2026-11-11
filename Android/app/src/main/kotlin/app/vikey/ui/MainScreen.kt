@@ -48,6 +48,7 @@ fun MainScreen(onReviewOnboarding: () -> Unit, onAcknowledgements: () -> Unit) {
     var pause by remember { pref(Settings.PAUSE_AFTER_MANUAL) }
     var webEnglish by remember { pref(Settings.ENGLISH_FOR_WEB_FIELDS) }
     var modern by remember { pref(Settings.MODERN_ORTHOGRAPHY) }
+    var telexStyle by remember { mutableStateOf(prefs.getInt(Settings.TELEX_STYLE, 0)) }
     var spelling by remember { pref(Settings.SPELLING) }
     var restore by remember { pref(Settings.RESTORE_IF_INVALID) }
     var autoCap by remember { pref(Settings.AUTO_CAPITALIZE) }
@@ -102,6 +103,23 @@ fun MainScreen(onReviewOnboarding: () -> Unit, onAcknowledgements: () -> Unit) {
         item {
             SectionTitle(stringResource(R.string.sec_vietnamese))
             Card {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Tip(R.string.telex_style, R.string.telex_style_tip, Modifier.weight(1f))
+                    var open by remember { mutableStateOf(false) }
+                    val names = listOf("Telex", stringResource(R.string.telex_simple1), stringResource(R.string.telex_simple2))
+                    Box {
+                        Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable { open = true }.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(names[telexStyle.coerceIn(0, 2)], maxLines = 1)
+                            Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        DropdownMenu(open, { open = false }) {
+                            names.forEachIndexed { i, n ->
+                                DropdownMenuItem({ Text(n) }, { telexStyle = i; prefs.edit().putInt(Settings.TELEX_STYLE, i).apply(); open = false }, leadingIcon = { if (telexStyle == i) Icon(Icons.Outlined.Check, null) else Spacer(Modifier.size(24.dp)) })
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(Modifier.padding(start = 16.dp))
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Tip(R.string.tone_placement, R.string.tone_placement_tip, Modifier.weight(1f))
                     // a menu like the iOS picker: the value and a chevron, never two lines

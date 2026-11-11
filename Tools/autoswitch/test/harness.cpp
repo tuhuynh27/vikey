@@ -25,11 +25,12 @@ static Uint16 keyOf(char c) {
         case 'u': return KEY_U; case 'v': return KEY_V; case 'w': return KEY_W; case 'x': return KEY_X; case 'y': return KEY_Y;
         case 'z': return KEY_Z; case ' ': return KEY_SPACE; case ',': return KEY_COMMA; case '.': return KEY_DOT;
         case '\n': return KEY_RETURN; case '<': return KEY_DELETE; case '_': return KEY_MINUS; case '-': return KEY_MINUS; case '/': return KEY_SLASH; case '1': return KEY_1; case '2': return KEY_2;
-        case '\'': return KEY_QUOTE; case '"': return KEY_QUOTE; case ')': return KEY_0; case '(': return KEY_9; case '[': return KEY_LEFT_BRACKET; case ';': return KEY_SEMICOLON; case '?': return KEY_SLASH;
+        case '\'': return KEY_QUOTE; case '"': return KEY_QUOTE; case ')': return KEY_0; case '(': return KEY_9; case '[': return KEY_LEFT_BRACKET; case ']': return KEY_RIGHT_BRACKET; case ';': return KEY_SEMICOLON; case '?': return KEY_SLASH;
     }
     return 0xFFFF;
 }
 static bool enAfterDouble = false;
+static int enNavOff = 0;   // D51: ← count away from the English word's end; like _enNavOffset, any other key, click or switch resets it
 static bool isLetter(char c) { return c >= 'a' && c <= 'z'; }
 static char16_t charOf(Uint32 d) { return (d & CHAR_CODE_MASK) ? (char16_t)(d & 0xFFFF) : (char16_t)keyCodeToCharacter(d); }
 
@@ -44,6 +45,23 @@ static void applyOutput(Uint16 key, bool caps) {
 }
 
 static void press(char c) {
+    if (c != '{' && c != '}') enNavOff = 0;
+    if (c == '{' || c == '}') {   // ← / →: the cursor moves (the screen model has no cursor: only used for round trips)
+        if (vLanguage == 1) vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, c == '{' ? KEY_LEFT : KEY_RIGHT, 0, false);
+        else {   // like HandleEnglishKeyForAutoSwitch (D51): a round trip keeps the word
+            static Uint32 nk[MAX_BUFF]; static int nc = 0, np = 0; static bool nv = true, nd = false;
+            if (c == '{' && enNavOff == 0 && (enCount > 0 || prevN > 0)) { memcpy(nk, enKeys, sizeof(enKeys)); nc = enCount; nv = enValid; nd = enAfterDouble; np = prevN; enNavOff = -1;
+                                                                     enCount = 0; enValid = false; prevN = 0; enAfterDouble = false; }
+            else if (enNavOff < 0) { if (c == '{') enNavOff--; else if (++enNavOff == 0) { memcpy(enKeys, nk, sizeof(enKeys)); enCount = nc; enValid = nv; enAfterDouble = nd; prevN = np; } }
+            else { enCount = 0; enValid = false; prevN = 0; enAfterDouble = false; }
+        }
+        return;
+    }
+    if (c == '@') {   // a click (where the cursor already is): the apps' mouse-down
+        if (vLanguage == 1) vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0);
+        else { enCount = 0; enValid = true; prevN = 0; enAfterDouble = false; vAutoSwitchForget(); }
+        return;
+    }
     if (c == '#') {   // the switch hotkey (⌥Z): what the apps do on a manual switch
         vLanguage = vLanguage ? 0 : 1; startNewSession(); vAutoSwitchForget(); prevN = 0; enCount = 0; enValid = true; enAfterDouble = false;
         return;
@@ -109,7 +127,12 @@ static std::string utf8(const std::u16string& s) {
 }
 
 // usage: harness <startLang 0|1> <keys>   or   harness bench
+#ifndef _MSC_VER   // weak: Engine.cpp has the real one; the quality scorecard also builds this against older engines (D56)
+int vTelexStyle __attribute__((weak)) = 0;
+#endif
 int main(int argc, char** argv) {
+    if (getenv("VIKEY_TEENCODE")) vTeencode = atoi(getenv("VIKEY_TEENCODE"));   // D53 experiments (on by default)
+    if (getenv("VIKEY_TELEX_STYLE")) vTelexStyle = atoi(getenv("VIKEY_TELEX_STYLE"));   // D56: 1 / 2 = Simple Telex 1 / 2
     H = (vKeyHookState*)vKeyInit();
     if (getenv("VIKEY_AUTO_OFF")) { vAutoSwitchByTyping = 0; vRestoreIfWrongSpelling = 0; }   // a plain Telex input method, for comparison
     if (argc >= 2 && strcmp(argv[1], "lines") == 0) {
@@ -118,7 +141,7 @@ int main(int argc, char** argv) {
         while (fgets(buf, sizeof buf, stdin)) {
             char* tab = strchr(buf, '\t'); if (!tab) continue;
             buf[strcspn(buf, "\n")] = 0;
-            screen.clear(); switches = 0; enCount = 0; enValid = true; prevN = 0; enAfterDouble = false; startNewSession(); vAutoSwitchForget();
+            screen.clear(); switches = 0; enCount = 0; enValid = true; prevN = 0; enAfterDouble = false; enNavOff = 0; startNewSession(); vAutoSwitchForget();
             vLanguage = atoi(buf);
             for (char* p = tab + 1; *p; p++) press(*p == '|' ? '\n' : *p);
             printf("%s\t%d\t%d\n", utf8(screen).c_str(), switches, vLanguage);

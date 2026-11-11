@@ -5,22 +5,15 @@ import Foundation
 final class NextWords {
     static let shared = NextWords()
     private let data: Data?
-    private var lineStarts: [Int32] = []
 
     init(bundle: Bundle = .main) {
         let url = bundle.url(forResource: "NextWords", withExtension: "tsv") ?? Bundle(for: NextWords.self).url(forResource: "NextWords", withExtension: "tsv")
+        // no line index: the search finds line starts in the mapped bytes, so opening the keyboard neither reads
+        // the whole 4.7 MB file nor keeps ~190k offsets (keyboard memory, Tony)
         data = url.flatMap { try? Data(contentsOf: $0, options: .alwaysMapped) }
-        guard let d = data else { return }
-        d.withUnsafeBytes { (p: UnsafeRawBufferPointer) in
-            let b = p.bindMemory(to: UInt8.self)
-            var starts: [Int32] = [0]
-            starts.reserveCapacity(b.count / 24)
-            for i in 0..<b.count where b[i] == 10 && i + 1 < b.count { starts.append(Int32(i + 1)) }
-            lineStarts = starts
-        }
     }
 
-    var isEmpty: Bool { lineStarts.isEmpty }
+    var isEmpty: Bool { data?.isEmpty ?? true }
 
     /// Up to 3 next words after the last one or two words of `before` (2-word context first).
     func predict(before: String) -> [String] {
@@ -48,12 +41,12 @@ final class NextWords {
     }
 
     private func lookup(_ key: String) -> [String] {
-        guard let d = data, !lineStarts.isEmpty else { return [] }
+        guard let d = data, !d.isEmpty else { return [] }
         let k = Array(key.precomposedStringWithCanonicalMapping.utf8)
         return d.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> [String] in
             let b = p.bindMemory(to: UInt8.self)
-            func compare(_ line: Int) -> Int {   // the line's context vs the key
-                var i = Int(lineStarts[line]), j = 0
+            func compare(_ start: Int) -> Int {   // the line's context vs the key
+                var i = start, j = 0
                 while i < b.count, b[i] != 9, b[i] != 10, j < k.count {
                     if b[i] != k[j] { return b[i] < k[j] ? -1 : 1 }
                     i += 1; j += 1
@@ -62,18 +55,21 @@ final class NextWords {
                 if lineEnded && j == k.count { return 0 }
                 return lineEnded ? -1 : 1
             }
-            var lo = 0, hi = lineStarts.count - 1
-            while lo <= hi {
-                let mid = (lo + hi) / 2, c = compare(mid)
+            func lineEnd(_ start: Int) -> Int { var e = start; while e < b.count && b[e] != 10 { e += 1 }; return e }
+            // binary search over bytes: [lo, hi) holds whole lines; a probe steps back to its line's start
+            var lo = 0, hi = b.count
+            while lo < hi {
+                var s = (lo + hi) / 2
+                while s > lo && b[s - 1] != 10 { s -= 1 }
+                let c = compare(s), end = lineEnd(s)
                 if c == 0 {
-                    var i = Int(lineStarts[mid]), end = i
-                    while end < b.count && b[end] != 10 { end += 1 }
+                    var i = s
                     while i < end && b[i] != 9 { i += 1 }
                     guard i < end else { return [] }
                     let rest = String(decoding: UnsafeBufferPointer(rebasing: b[(i + 1)..<end]), as: UTF8.self)
                     return rest.split(separator: "\t").map(String.init)
                 }
-                if c < 0 { lo = mid + 1 } else { hi = mid - 1 }
+                if c < 0 { lo = end + 1 } else { hi = s }
             }
             return []
         }

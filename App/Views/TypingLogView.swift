@@ -6,6 +6,7 @@ struct TypingLogView: View {
     @State private var stats: [String: [String: Int]] = [:]
     @State private var events: [LogEvent] = []
     @State private var confirmClear = false
+    @State private var loadGeneration = 0   // the latest reload; a slower earlier one must not overwrite it
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -40,7 +41,7 @@ struct TypingLogView: View {
         .confirmationDialog("Xoá toàn bộ nhật ký gõ?", isPresented: $confirmClear) {
             Button("Xoá", role: .destructive) {
                 VikeyCore.clearTypingLog()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { reload() }
+                reload()
             }
         } message: {
             Text("Số liệu thống kê và file log sẽ bị xoá.")
@@ -54,16 +55,26 @@ struct TypingLogView: View {
     }
 
     private func reload() {
-        VikeyCore.flushTypingLog()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            stats = (VikeyCore.typingLogStats() as? [String: [String: Int]]) ?? [:]
-            events = LogEvent.load(from: VikeyCore.typingLogPath(), limit: 300)
+        // the log can be 20 MB: read it off the main thread, which also runs the keyboard tap. A reload started
+        // before a clear can finish reading the old file after the reload that follows the clear: only the latest
+        // reload's result is shown.
+        loadGeneration += 1
+        let generation = loadGeneration
+        // the stats as of the flush: a key typed while it runs isn't in the rows read, so it isn't counted either
+        let snapshot = (VikeyCore.typingLogStats() as? [String: [String: Int]]) ?? [:]
+        VikeyCore.flushTypingLogThen {
+            guard generation == loadGeneration else { return }
+            stats = snapshot
+            let path = VikeyCore.typingLogPath()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let loaded = LogEvent.load(from: path, limit: 300)
+                DispatchQueue.main.async { if generation == loadGeneration { events = loaded } }
+            }
         }
     }
 
     private func reveal() {
-        VikeyCore.flushTypingLog()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        VikeyCore.flushTypingLogThen {
             let url = URL(fileURLWithPath: VikeyCore.typingLogPath())
             if FileManager.default.fileExists(atPath: url.path) {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -130,13 +141,25 @@ struct LogEvent: Identifiable {
     let time, place, title, detail: String
     let color: Color
 
+    /// The last `limit` events, reading only the end of the file (lines are a few hundred bytes).
     static func load(from path: String, limit: Int) -> [LogEvent] {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+        guard let h = FileHandle(forReadingAtPath: path) else { return [] }
+        defer { try? h.close() }
+        let tailBytes: UInt64 = UInt64(limit) * 1024
+        guard let size = try? h.seekToEnd() else { return [] }
+        // from one byte before the tail: everything up to the first newline is a partial line (or, when the tail
+        // starts right at a line, just that newline), so a whole record at the boundary is kept
+        let start = size > tailBytes ? size - tailBytes - 1 : 0
+        guard (try? h.seek(toOffset: start)) != nil, var data = try? h.readToEnd() else { return [] }
+        if start > 0 {
+            guard let nl = data.firstIndex(of: UInt8(ascii: "\n")) else { return [] }
+            data = data[(nl + 1)...]
+        }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
         var out: [LogEvent] = []
-        for line in content.split(separator: "\n").reversed() {
+        for line in lines.reversed() {
             if out.count >= limit { break }
-            guard let data = line.data(using: .utf8),
-                  let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            guard let d = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
             out.append(LogEvent(id: out.count, d))
         }
         return out

@@ -20,6 +20,7 @@ and Wayland, GNOME and KDE. Same `Engine/` C++ as macOS/Windows/iOS; the platfor
 | Onboarding (Telex, permission, practice, hotkey, emoji) | `vikey-settings --guide` (first run and the panel's "Hướng dẫn…"); the Accessibility step is "Thêm Vikey vào nguồn nhập" with a live check of `org.gnome.desktop.input-sources` and a button to Settings › Keyboard (no check outside GNOME: the step never blocks there) |
 | Sparkle update check | "Kiểm tra cập nhật…" and a daily check from the engine when "Tự động cập nhật" is on: `vikey.app/release.json` → `linux.version`; a dialog, or a notification with "Tải về" → vikey.app/download#linux. The package is installed by the user (no apt/dnf repo yet) |
 | Ghi nhận | About › Details › Ghi nhận (the Mac list without Sparkle) |
+| Crash reports (ask on the next launch, "Luôn gửi, không hỏi lại") | the engine's signal handler (`Linux/ibus/Crash.cpp`: SIGSEGV/BUS/ABRT/FPE/ILL on an alternate stack, async-signal-safe) writes `~/.local/state/vikey/crashes/vikey-YYYYMMDD-HHMMSS.txt` (signal, fault address, backtrace as module+offset, version; no typed text) and re-raises, so IBus starts the engine again; 8 s after that start the engine runs `vikey-settings --crash-report`, which sends silently (`CrashReportsAuto`, also a switch "Tự gửi báo cáo lỗi") or asks with a desktop notification (three actions; an Adwaita dialog with the checkbox when there is no notification server, or `--dialog`). Home folder → `~`, curl POST to vikey.app/api/crash. Self-test: `echo crash-selftest > ~/.config/vikey/command` (or `crash-selftest abort`), or `VIKEY_CRASH_SELFTEST=segv\|abort` when run by hand |
 | Per-app memory | X11 `_NET_ACTIVE_WINDOW` WM_CLASS; on Wayland only XWayland apps (Wayland gives engines no app identity) |
 | Per-website memory | not available: Linux has no accessibility path to a browser's address bar that works across browsers and Wayland (the Mac reads it with Apple Events, Windows with UI Automation). It would need a browser extension talking to the engine; the row is left out of the window |
 | Menu bar icon V/E + menu | IBus panel properties: V/E symbol, Tiếng Việt toggle, Tự chuyển, Mở Vikey…, Hướng dẫn…, Kiểm tra cập nhật…, Giới thiệu Vikey (+ Xem nhật ký gõ… while the typing log is on, the Mac's debug menu). No "Thoát": IBus owns the engine's life |
@@ -38,7 +39,7 @@ and Wayland, GNOME and KDE. Same `Engine/` C++ as macOS/Windows/iOS; the platfor
 | 1 | Engine lock on Linux CI | done (ubuntu-latest + ubuntu-24.04-arm) |
 | 2 | IBus engine | done: live suite 14/14 in the VM (GNOME Wayland) from the installed .deb |
 | 3 | Settings app / typing log / About | done (screenshots sent to Tony) |
-| 4 | Packages: .deb + .rpm (CPack), CI upload to the GitHub release, `release.sh --linux` | done; .deb installed and tested in the VM (prefix /usr) |
+| 4 | Packages: .deb + .rpm (CPack), Arch .pkg.tar.zst from the .deb, CI upload to the GitHub release, `release.sh --linux` | done; .deb installed and tested in the VM (prefix /usr) |
 | 5 | QA: `Linux/Tests/livetest.py` 14/14 on GNOME (Wayland session, XWayland test window), package install | done in the dev VM; clean-VM install not done (no disk) |
 | 6 | Site: Linux card on /download, home button (behind `<!-- linux -->` until release.json has `linux`) | written |
 | 7 | Parity with the Mac app as of 1.0.23 (D44): core D32–D42, switch sound, emoji picker, guide, update check, Ghi nhận | done in the dev VM: live 25/25 |
@@ -62,4 +63,3 @@ and Wayland, GNOME and KDE. Same `Engine/` C++ as macOS/Windows/iOS; the platfor
 - XWayland on a 2x screen: X positions are device pixels, GDK sizes are not (multiply by the surface scale); GTK rewrites WM hints and `_NET_WM_STATE` at map, so "above" is a client message to the window manager.
 - A window started by the engine has no startup id: mutter only focuses it after a `_NET_ACTIVE_WINDOW` request with source "pager".
 - `pkill -f vikey-settings` also kills the shell that runs it (its command line contains the name): use `pkill -x`.
-- `Tools/autoswitch/{driver/bench,driver/drvlazy,touch/touchsim,sim/sim0,test/h0,test/h10}` are tracked macOS binaries; a Linux build overwrites them (`git checkout -- Tools` before pulling in the VM).

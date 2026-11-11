@@ -7,3 +7,7 @@ compatibility_date = "2026-10-01"
 binding = "DB"
 database_name = "vikey-notify"
 database_id = "2427eb7f-cd88-45f7-9082-ea0d3376270f"
+
+[[r2_buckets]]   # files attached to /api/feedback (screenshots, screen recordings, crash logs), key feedback/<id>/<n>-<name>
+binding = "FILES"
+bucket_name = "vikey-feedback"

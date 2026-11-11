@@ -13,10 +13,10 @@ SITE = "https://vikey.app"
 GITHUB = "https://github.com/tonyminibot/Vikey"
 
 T = {   # layout text per language (D31: Vietnamese at /, English at /en/)
-    "vi": dict(faq="Câu hỏi", changelog="Phiên bản", download="Tải về", home="Trang chủ", support="Hỗ trợ",
+    "vi": dict(features="Chức năng", faq="Câu hỏi", changelog="Phiên bản", download="Tải về", home="Trang chủ", support="Hỗ trợ",
                faq_long="Câu hỏi thường gặp", bugs="Báo lỗi", feedback="Gửi góp ý", privacy="Quyền riêng tư", ack="Ghi nhận", source="Mã nguồn",
                license="Giấy phép GPL-3.0", switch="EN", switch_title="English", sitename="Vikey - Gõ tiếng Việt"),
-    "en": dict(faq="FAQ", changelog="Changelog", download="Download", home="Home", support="Support",
+    "en": dict(features="Features", faq="FAQ", changelog="Changelog", download="Download", home="Home", support="Support",
                faq_long="FAQ", bugs="Report a bug", feedback="Send feedback", privacy="Privacy", ack="Acknowledgements", source="Source code",
                license="GPL-3.0 license", switch="VI", switch_title="Tiếng Việt", sitename="Vikey - Gõ tiếng Việt"),
 }
@@ -36,10 +36,10 @@ def nav(lang, pre, other):
         return f'<a class="lang" href="{other}" hreflang="{"en" if lang == "vi" else "vi"}" title="{t["switch_title"]}">{flag}{t["switch"]}</a>'
     return f"""<header class="nav"><div class="wrap">
 <a class="brand" href="{pre}/"><img src="/assets/icon.png" alt="" width="34" height="34"><span>Vi<b>key</b></span></a>
-<nav><a href="{pre}/faq">{t["faq"]}</a><a href="{pre}/changelog">{t["changelog"]}</a><a href="{GITHUB}">GitHub</a>{sw(1)}<a class="btn dl-direct" data-cta="short" href="{pre}/download">{t["download"]}</a></nav>
+<nav><a href="{pre}/#features">{t["features"]}</a><a href="{pre}/faq">{t["faq"]}</a><a href="{pre}/changelog">{t["changelog"]}</a><a href="{GITHUB}">GitHub</a>{sw(1)}<a class="btn dl-direct" data-cta="short" href="{pre}/download">{t["download"]}</a></nav>
 <div class="nav-m">{sw(2)}<button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mnav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
 </div>
-<nav class="mnav" id="mnav" hidden><a href="{pre}/download">{t["download"]}</a><a href="{pre}/faq">{t["faq"]}</a><a href="{pre}/changelog">{t["changelog"]}</a><a href="{GITHUB}">GitHub</a></nav>
+<nav class="mnav" id="mnav" hidden><a href="{pre}/download">{t["download"]}</a><a href="{pre}/#features">{t["features"]}</a><a href="{pre}/faq">{t["faq"]}</a><a href="{pre}/changelog">{t["changelog"]}</a><a href="{GITHUB}">GitHub</a></nav>
 </header>
 <script>(()=>{{const b=document.querySelector(".menu-btn"),m=document.getElementById("mnav");if(!b)return;b.onclick=()=>{{const o=m.hidden;m.hidden=!o;b.setAttribute("aria-expanded",o)}};addEventListener("keydown",e=>{{if(e.key==="Escape"){{m.hidden=true;b.setAttribute("aria-expanded",false)}}}})}})()</script>
 """
@@ -48,7 +48,7 @@ def footer(lang, pre):
     t = T[lang]
     return f"""<footer class="foot"><div class="wrap cols">
 <div class="col"><p class="muted">© {YEAR} Tony Dinh</p></div>
-<div class="col"><h4>Vikey</h4><a href="{pre}/">{t["home"]}</a><a href="{pre}/download">{t["download"]}</a><a href="{pre}/changelog">{t["changelog"]}</a></div>
+<div class="col"><h4>Vikey</h4><a href="{pre}/">{t["home"]}</a><a href="{pre}/#features">{t["features"]}</a><a href="{pre}/download">{t["download"]}</a><a href="{pre}/changelog">{t["changelog"]}</a></div>
 <div class="col"><h4>{t["support"]}</h4><a href="{pre}/faq">{t["faq_long"]}</a><a href="{pre}/feedback">{t["feedback"]}</a><a href="{GITHUB}/issues">{t["bugs"]}</a><a href="{pre}/privacy">{t["privacy"]}</a><a href="{pre}/acknowledgements">{t["ack"]}</a></div>
 <div class="col"><h4>{t["source"]}</h4><a href="{GITHUB}">GitHub</a><a href="{GITHUB}/blob/main/LICENSE">{t["license"]}</a><a href="https://x.com/tdinh_me">@tdinh_me</a></div>
 </div></footer>"""
@@ -72,20 +72,22 @@ def release():
 
 PLATFORMS = ("macos", "windows", "linux", "ios", "android")
 PNAME = dict(macos="macOS", windows="Windows", linux="Linux", ios="iOS", android="Android")
-PREQ = {"vi": dict(macos="macOS 13 trở lên", windows="Windows 10 và 11", linux="Ubuntu, Debian, Fedora", ios="iPhone, iOS 17+", android="Điện thoại Android"),
-        "en": dict(macos="macOS 13 or later", windows="Windows 10 and 11", linux="Ubuntu, Debian, Fedora", ios="iPhone, iOS 17+", android="Android phones")}
+PREQ = {"vi": dict(macos="macOS 13 trở lên", windows="Windows 10 và 11", linux="Ubuntu, Debian, Fedora, Arch", ios="iPhone, iOS 17+", android="Điện thoại Android"),
+        "en": dict(macos="macOS 13 or later", windows="Windows 10 and 11", linux="Ubuntu, Debian, Fedora, Arch", ios="iPhone, iOS 17+", android="Android phones")}
 PTXT = {"vi": dict(dl="Tải về", store="App Store", soon="Sắp có", notify="Báo tôi khi có", arm="Bản cho chip ARM", play="Google Play"),
         "en": dict(dl="Download", store="App Store", soon="Soon", notify="Notify me", arm="ARM64 build", play="Google Play")}
 
 def downloads(rel):
     """Where each platform's download lives, from release.json; None = no build yet ("pending" + notify form).
-    Release lanes add their platform to release.json: windows {x64, arm64}, linux {deb_x64, rpm_x64, deb_arm64, rpm_arm64}, ios {app_store_url},
+    Release lanes add their platform to release.json: windows {x64, arm64}, linux {deb_x64, rpm_x64, pacman_x64, deb_arm64, rpm_arm64, pacman_arm64}, ios {app_store_url},
     android {download_url}. The Mac lane owns the top-level keys."""
     win, lin, ios, andr = (rel.get(k) or {} for k in ("windows", "linux", "ios", "android"))
     d = dict(macos={"url": rel["download_url"]} if rel.get("download_url") else None,
              windows={"url": win["x64"]["download_url"], "arm": (win.get("arm64") or {}).get("download_url")} if (win.get("x64") or {}).get("download_url") else None,
              linux={"url": lin["deb_x64"]["download_url"], "rpm": (lin.get("rpm_x64") or {}).get("download_url"),
-                    "deb_arm": (lin.get("deb_arm64") or {}).get("download_url"), "rpm_arm": (lin.get("rpm_arm64") or {}).get("download_url")}
+                    "pacman": (lin.get("pacman_x64") or {}).get("download_url"),
+                    "deb_arm": (lin.get("deb_arm64") or {}).get("download_url"), "rpm_arm": (lin.get("rpm_arm64") or {}).get("download_url"),
+                    "pacman_arm": (lin.get("pacman_arm64") or {}).get("download_url")}
                    if (lin.get("deb_x64") or {}).get("download_url") else None,
              ios={"url": ios["app_store_url"]} if ios.get("app_store_url") else None,
              android={"url": andr["download_url"]} if andr.get("download_url") else None)
@@ -101,9 +103,9 @@ def platform_cards(lang, dl):
         if d:
             store = p == "ios"
             btn = f'<a class="btn dl" href="{d["url"]}"{"" if store else " download"}>{t["store"] if store else t["dl"]}</a>'
-            if p == "linux":   # the package format matters more than the button: .deb and .rpm side by side
-                btn = f'<div class="two"><a class="btn dl" href="{d["url"]}" download>.deb</a>' + (f'<a class="btn dl" href="{d["rpm"]}" download>.rpm</a>' if d.get("rpm") else "") + "</div>"
-                arms = [f'<a href="{d[k]}" download>{n}</a>' for k, n in (("deb_arm", ".deb"), ("rpm_arm", ".rpm")) if d.get(k)]
+            if p == "linux":   # the package format matters more than the button: .deb, .rpm and Arch side by side
+                btn = f'<div class="two three"><a class="btn dl" href="{d["url"]}" download>.deb</a>' + (f'<a class="btn dl" href="{d["rpm"]}" download>.rpm</a>' if d.get("rpm") else "") + (f'<a class="btn dl" href="{d["pacman"]}" download title="Arch Linux package">Arch</a>' if d.get("pacman") else "") + "</div>"
+                arms = [f'<a href="{d[k]}" download>{n}</a>' for k, n in (("deb_arm", ".deb"), ("rpm_arm", ".rpm"), ("pacman_arm", "Arch")) if d.get(k)]
                 if arms: btn += '<span class="alt">ARM64: ' + " · ".join(arms) + "</span>"
             if p == "windows" and d.get("arm"): btn += f'<a class="alt" href="{d["arm"]}" download>{t["arm"]}</a>'
             if p == "android": btn = f'<div class="two"><a class="btn dl" href="{d["url"]}" download>APK</a><a class="btn ghost soon" href="#android" data-notify="play" title="{t["notify"]}">{t["play"]}<small>{t["soon"]}</small></a></div>'
@@ -176,6 +178,7 @@ def build():
         os.makedirs(outdir, exist_ok=True)
         out = os.path.join(outdir, "index.html" if slug == "index" else f"{slug}.html")
         open(out, "w", encoding="utf-8").write(page)
+    open(os.path.join(DIST, "_redirects"), "w").write("/features /#features 301\n/en/features /en/#features 301\n")   # the features page moved onto the home page
     open(os.path.join(DIST, "_headers"), "w").write("/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n/downloads/*\n  Content-Disposition: attachment\n")
     open(os.path.join(DIST, "robots.txt"), "w").write(f"User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n")
     pages = [n[:-5] for n in os.listdir(PAGES) if n.endswith(".html") and n != "404.html"]

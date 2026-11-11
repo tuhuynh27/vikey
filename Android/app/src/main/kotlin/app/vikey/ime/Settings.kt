@@ -8,6 +8,7 @@ object Settings {
     const val AUTO_SWITCH = "AutoSwitchByTyping"
     const val PAUSE_AFTER_MANUAL = "PauseAutoAfterManual"
     const val MODERN_ORTHOGRAPHY = "ModernOrthography"
+    const val TELEX_STYLE = "TelexStyle"   // Int: 0 Telex, 1 Simple Telex 1, 2 Simple Telex 2 (D56)
     const val SPELLING = "Spelling"
     const val RESTORE_IF_INVALID = "RestoreIfInvalidWord"
     const val ENGLISH_FOR_WEB_FIELDS = "EnglishForWebFields"

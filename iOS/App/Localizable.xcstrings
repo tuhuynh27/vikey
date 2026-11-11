@@ -1120,6 +1120,96 @@
           }
         }
       }
+    },
+    "Kiểu gõ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing style"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu gõ"
+          }
+        }
+      }
+    },
+    "Telex": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex"
+          }
+        }
+      }
+    },
+    "Telex đơn giản 1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simple Telex 1"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex đơn giản 1"
+          }
+        }
+      }
+    },
+    "Telex đơn giản 2": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simple Telex 2"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex đơn giản 2"
+          }
+        }
+      }
+    },
+    "Telex và Telex đơn giản 2: w đứng riêng ra ư. Telex đơn giản 1: w đứng riêng vẫn là w. Cả ba kiểu đều gõ uw, ow, aw ra ư, ơ, ă. Trên bàn phím điện thoại, [ và ] luôn là dấu ngoặc.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex and Simple Telex 2: a lone w types ư. Simple Telex 1: a lone w stays w. In all three, uw, ow and aw type ư, ơ and ă. On the phone keyboard, [ and ] are always brackets."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telex và Telex đơn giản 2: w đứng riêng ra ư. Telex đơn giản 1: w đứng riêng vẫn là w. Cả ba kiểu đều gõ uw, ow, aw ra ư, ơ, ă. Trên bàn phím điện thoại, [ và ] luôn là dấu ngoặc."
+          }
+        }
+      }
+    },
+    "Góp ý": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

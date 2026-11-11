@@ -21,6 +21,7 @@ struct Guide {
     GtkWidget* practiceText; GtkWidget* entries[3]; GtkWidget* marks[3]; bool ok[3] = {};
     GtkWidget *typingNow, *beepSw, *hotkeyRec, *emojiSw, *emojiBox, *emojiRec, *emojiHint;
     Step step = WELCOME; int lastLang = -1;
+    guint tick = 0;
 } G;
 
 GtkWidget* label(const char* text, const char* cls = nullptr, bool wrap = true) {
@@ -55,11 +56,29 @@ void refresh() {
     bool beep = (currentHotkey() & 0x8000) != 0; if (gtk_switch_get_active(GTK_SWITCH(G.beepSw)) != beep) gtk_switch_set_active(GTK_SWITCH(G.beepSw), beep);
     gtk_widget_set_visible(G.emojiBox, emojiOn); gtk_widget_set_visible(G.emojiHint, emojiOn && emojiKey == 0);
 }
+// A running IBus lists only the engines it found when it started, so right after the install Settings can't offer
+// Vikey (#50; ibus write-cache doesn't change that, a restart does). Restart it once if it runs but doesn't know Vikey.
+void restartIBusIfVikeyMissing() {
+    static bool done = false; if (done) return; done = true;
+    GSubprocess* p = g_subprocess_new((GSubprocessFlags)(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE), nullptr, "ibus", "list-engine", "--name-only", nullptr);
+    if (!p) return;   // no ibus command
+    g_subprocess_communicate_utf8_async(p, nullptr, nullptr, [](GObject* o, GAsyncResult* res, gpointer) {   // async: a stuck IBus can't freeze the guide
+        GSubprocess* p = G_SUBPROCESS(o); gchar* out = nullptr;
+        bool ok = g_subprocess_communicate_utf8_finish(p, res, &out, nullptr, nullptr) && g_subprocess_get_successful(p);
+        bool any = false, known = false; gchar** lines = g_strsplit(out ? out : "", "\n", -1);
+        for (int i = 0; lines[i]; i++) { const char* l = g_strstrip(lines[i]); if (*l) any = true; if (!strcmp(l, "vikey")) known = true; }
+        g_strfreev(lines); g_free(out); g_object_unref(p);
+        if (!ok || !any || known) return;   // IBus isn't running (another input framework), its list failed (empty: ibus exits 0 then), or it knows Vikey
+        gchar* r[] = {(gchar*)"ibus", (gchar*)"restart", nullptr}; g_spawn_async(nullptr, r, nullptr, (GSpawnFlags)(G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL), nullptr, nullptr, nullptr, nullptr);
+    }, nullptr);
+}
 void go(Step s) {
     G.step = s; gtk_stack_set_visible_child_name(GTK_STACK(G.stack), kNames[s]); refresh();
+    if (s == SETUP) restartIBusIfVikeyMissing();
     if (s == PRACTICE) g_timeout_add(200, [](gpointer) -> gboolean { gtk_widget_grab_focus(G.entries[0]); return FALSE; }, nullptr);
 }
-void finish() { prefs::setInt("OnboardingDone", 1); bool m = G.thenMain; GtkApplication* app = G.app; gtk_window_destroy(GTK_WINDOW(G.win)); if (m) buildMain(app); }
+void stopTimer() { if (G.tick) { g_source_remove(G.tick); G.tick = 0; } }
+void finish() { prefs::setInt("OnboardingDone", 1); stopTimer(); bool m = G.thenMain; GtkApplication* app = G.app; gtk_window_destroy(GTK_WINDOW(G.win)); if (m) buildMain(app); }
 
 GtkWidget* welcomePage() {
     GtkWidget* b = vbox(14);
@@ -167,7 +186,7 @@ void buildGuide(GtkApplication* app, bool thenMain) {
     gtk_css_provider_load_from_string(p, ".step-num { min-width: 20px; min-height: 20px; border-radius: 10px; background: alpha(@window_fg_color, 0.40); color: @window_bg_color; font-weight: bold; font-size: 0.85em; }");
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(p), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     G.win = adw_application_window_new(app); gtk_window_set_title(GTK_WINDOW(G.win), "Vikey"); gtk_window_set_default_size(GTK_WINDOW(G.win), 540, 470 + 47); gtk_window_set_resizable(GTK_WINDOW(G.win), FALSE);
-    g_signal_connect(G.win, "close-request", G_CALLBACK(+[](GtkWindow*, gpointer) -> gboolean { prefs::setInt("OnboardingDone", 1); return FALSE; }), nullptr);
+    g_signal_connect(G.win, "close-request", G_CALLBACK(+[](GtkWindow*, gpointer) -> gboolean { prefs::setInt("OnboardingDone", 1); stopTimer(); return FALSE; }), nullptr);
     GtkWidget* tv = adw_toolbar_view_new(); GtkWidget* hb = adw_header_bar_new(); adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(tv), hb);
     GtkWidget* root = vbox(0); for (auto f : {gtk_widget_set_margin_start, gtk_widget_set_margin_end, gtk_widget_set_margin_bottom}) f(root, 28); gtk_widget_set_margin_top(root, 8);
     // header: icon, wordmark + tagline, step dots
@@ -195,7 +214,7 @@ void buildGuide(GtkApplication* app, bool thenMain) {
     if (const char* s = getenv("VIKEY_GUIDE_STEP")) { int i = atoi(s); if (i >= 0 && i < COUNT) G.step = (Step)i; }   // screenshots
     go(G.step);
     // live: the input source check, the language (practice text), the hotkey
-    g_timeout_add(500, [](gpointer) -> gboolean {
+    G.tick = g_timeout_add(500, [](gpointer) -> gboolean {
         prefs::reload();
         if (G.step == SETUP && vikeyInInputSources() == 1 && !getenv("VIKEY_PREVIEW_SETUP")) go(PRACTICE); else refresh();
         return G_SOURCE_CONTINUE; }, nullptr);

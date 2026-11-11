@@ -19,7 +19,7 @@
 int vLanguage = 1, vSwitchKeyStatus = 0x7A000206, vCheckSpelling = 1, vUseModernOrthography = 1;
 int vRestoreIfWrongSpelling = 1, vFixRecommendBrowser = 1, vUseSmartSwitchKey = 1, vOtherLanguage = 1;
 int vAutoSwitchByTyping = 1, vPerformLayoutCompat = 0;
-// Emoji picker (Settings.cpp): its hotkey (0 = off); while it is open keys go to the picker, not the engine
+// Emoji picker (Settings.cpp): its hotkey (0 = off); while it is open keys go to the picker, not the engine (Windows' own shortcuts and media keys excepted)
 static int vEmojiHotkey = 0;
 static volatile bool vEmojiOpen = false;
 static HWND vEmojiWindow = nullptr;
@@ -52,7 +52,10 @@ static HHOOK _kbHook = nullptr, _mouseHook = nullptr;
 static HWINEVENTHOOK _focusHook = nullptr, _fgHook = nullptr;
 static vKeyHookState* pData = nullptr;
 static unsigned _flag = 0, _lastFlag = 0;
+static bool _modifierChordUsed = false;   // the modifiers held went with a click or another key: no modifier-only hotkey until all are released
+static DWORD _hotkeyVk = 0;               // the hotkey's key while it is down (with or without its modifiers): the LL hook has no repeat flag, so key-downs before its key-up are auto-repeat
 static Uint16 _keycode = 0;
+static DWORD _keyVk = 0, _keyExtended = 0;   // the key as Windows sent it: re-sent as is after a restore (Home, numpad 1...)
 static bool _hasJustUsedHotKey = false;
 static std::function<void(int)> _observer;
 static std::wstring _frontApp = L"UnknownApp";   // exe name of the app in front
@@ -67,6 +70,9 @@ static int _enCount = 0;
 static bool _enValid = true;
 static bool _enAfterShortcut = false;
 static bool _enAfterDouble = false;
+// ← then → back to the same spot inside a word: the English word is still the one being typed (D51)
+static Uint32 _enNavKeys[MAX_BUFF]; static int _enNavCount = 0, _enNavPrevN = 0, _enNavOffset = 0;
+static bool _enNavValid = true, _enNavAfterDouble = false;
 static Uint32 _enPrevKeys[2][MAX_BUFF];
 static int _enPrevCounts[2];
 static int _enPrevN = 0;
@@ -82,7 +88,7 @@ static Uint32 _undoneKeys[MAX_BUFF];
 static int _undoneCount = 0;
 
 static void StartEnglishWord(bool valid) { _enCount = 0; _enValid = valid; _enAfterShortcut = false; }
-static void ResetEnglishWord(bool valid) { _enAfterDouble = false; _undoneCount = 0; StartEnglishWord(valid); _enPrevN = 0; vAutoSwitchForget(); }
+static void ResetEnglishWord(bool valid) { _enAfterDouble = false; _undoneCount = 0; StartEnglishWord(valid); _enPrevN = 0; _enNavOffset = 0; vAutoSwitchForget(); }   // also the D51 round trip: after a click or a switch → must not bring the old word back
 
 // ---- Typing log ------------------------------------------------------------------------
 int vTypingLogKeys = 1, vTypingLogEnabled = 0;
@@ -270,6 +276,7 @@ void reloadSettings() {
     vCheckSpelling = prefs::getInt(L"Spelling", 1); vSetCheckSpelling();
     vRestoreIfWrongSpelling = prefs::getInt(L"RestoreIfInvalidWord", 1);
     vUseModernOrthography = prefs::getInt(L"ModernOrthography", 1);
+    vTelexStyle = prefs::getInt(L"TelexStyle", 0);   // D56: Telex / Simple Telex 1 / 2
     vUseSmartSwitchKey = prefs::getInt(L"UseSmartSwitchKey", 1);
     vAutoSwitchByTyping = AutoSwitchPaused() ? 0 : prefs::getInt(L"AutoSwitchByTyping", 1);
     vTypingLogKeys = prefs::getInt(L"TypingLogKeys", 1);
@@ -291,14 +298,15 @@ static void inputChar(INPUT& in, wchar_t c, bool down) {
 static std::vector<INPUT> _batch;
 static void batchBackspaces(int n) { for (int i = 0; i < n; i++) { INPUT a, b; inputKey(a, VK_BACK, true); inputKey(b, VK_BACK, false); _batch.push_back(a); _batch.push_back(b); } }
 static void batchText(const wchar_t* text, int count) { for (int i = 0; i < count; i++) { INPUT a, b; inputChar(a, text[i], true); inputChar(b, text[i], false); _batch.push_back(a); _batch.push_back(b); } }
-static void batchKey(WORD vk, bool shift) {
-    INPUT a, b, c, d;
-    if (shift) { inputKey(a, VK_SHIFT, true); _batch.push_back(a); }
-    inputKey(c, vk, true); inputKey(d, vk, false); _batch.push_back(c); _batch.push_back(d);
-    if (shift) { inputKey(b, VK_SHIFT, false); _batch.push_back(b); }
+/// A key press and release. Modifiers aren't sent: the user is still holding them (an injected Shift up would
+/// release a Shift that is physically down, and the next letters would come out lowercase).
+static void batchKey(WORD vk, DWORD extra = 0) {
+    INPUT c, d;
+    inputKey(c, vk, true, extra); inputKey(d, vk, false, extra); _batch.push_back(c); _batch.push_back(d);
 }
 static void flushBatch() { if (!_batch.empty()) { SendInput((UINT)_batch.size(), _batch.data(), sizeof(INPUT)); _batch.clear(); } }
 
+static bool IsLetterKey(Uint16 key);
 /// Types the engine's new characters; for a restore, also the key that triggered it.
 static void batchEngineChars() {
     wchar_t text[MAX_BUFF + 2]; int n = 0;
@@ -308,32 +316,38 @@ static void batchEngineChars() {
     }
     bool sendControlKey = false;
     if (pData->code == vRestore || pData->code == vRestoreAndStartNewSession) {
-        Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & F_CAPS) || (_flag & F_SHIFT) ? CAPS_MASK : 0));
+        Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & F_SHIFT) || ((_flag & F_CAPS) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only ("NAS," gave "NAS<")
         if (ch != 0) text[n++] = (wchar_t)ch; else sendControlKey = true;
     }
     if (pData->code == vRestoreAndStartNewSession) startNewSession();
     if (n > 0) batchText(text, n);
-    if (sendControlKey) { WORD vk = vkOf(_keycode); if (vk) batchKey(vk, (_flag & F_SHIFT) != 0); }
+    // the key itself, not the engine's code for it: Home, End and numpad keys all reach the engine as Esc
+    if (sendControlKey) { WORD vk = _keyVk ? (WORD)_keyVk : vkOf(_keycode); if (vk) batchKey(vk, _keyExtended); }
 }
 
 /// Sends the engine's result for the current key: backspaces, then the new characters.
 static void SendEngineOutput() {
-    if (vFixRecommendBrowser && pData->extCode != 4) { wchar_t e = 0x202F; batchText(&e, 1); pData->backspaceCount++; }   // defeats address-bar autocomplete
+    // defeats address-bar autocomplete; not when the extra backspace would reach MAX_BUFF (the engine can ask for 31): then none would be sent
+    if (vFixRecommendBrowser && pData->extCode != 4 && pData->backspaceCount < MAX_BUFF - 1) { wchar_t e = 0x202F; batchText(&e, 1); pData->backspaceCount++; }
     if (pData->backspaceCount > 0 && pData->backspaceCount < MAX_BUFF) batchBackspaces(pData->backspaceCount);
     batchEngineChars();
     flushBatch();
 }
 
 // ---- Hotkey ------------------------------------------------------------------------------
-static bool checkHotKey(int hotKeyData, bool checkKeyCode = true) {
+/// flags: for a key hotkey (Alt+Z) the key press's own, so Alt held and Z again switches again; for modifiers
+/// alone (Ctrl+Shift) the most modifiers held before the release
+static bool checkHotKey(int hotKeyData, unsigned flags, bool checkKeyCode = true) {
     if ((hotKeyData & (~0x8000)) == EMPTY_HOTKEY) return false;
-    if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(_lastFlag & F_CONTROL)) return false;
-    if (HAS_OPTION(hotKeyData) ^ GET_BOOL(_lastFlag & F_ALT)) return false;
-    if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(_lastFlag & F_WIN)) return false;
-    if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(_lastFlag & F_SHIFT)) return false;
+    if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(flags & F_CONTROL)) return false;
+    if (HAS_OPTION(hotKeyData) ^ GET_BOOL(flags & F_ALT)) return false;
+    if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(flags & F_WIN)) return false;
+    if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(flags & F_SHIFT)) return false;
     if (checkKeyCode && GET_SWITCH_KEY(hotKeyData) != _keycode) return false;
     return true;
 }
+// a key or click with modifiers held: releasing them afterwards isn't the modifier-only hotkey
+static void cancelModifierHotkey() { _lastFlag = 0; if (_flag & (F_SHIFT | F_CONTROL | F_ALT | F_WIN)) _modifierChordUsed = true; }
 static void switchLanguage(const char* via) {
     PauseAutoSwitchAfterManual();
     _autoFixUndo.active = false;
@@ -360,6 +374,15 @@ void setLanguageObserver(std::function<void(int)> f) { _observer = f; }
 static std::function<void()> _emojiHandler;
 void setEmojiHotkeyHandler(std::function<void()> f) { _emojiHandler = f; }
 void setEmojiPickerOpen(bool open, HWND picker) { vEmojiWindow = picker; vEmojiOpen = open; }
+/// Windows' own shortcuts while the picker is open: Win+D, Alt+Tab, Alt+F4, Ctrl+Esc (Alt+Backspace deletes a search
+/// word, Ctrl+Alt is AltGr). The picker keeps every other key, like the Mac's panel.
+static bool windowsShortcut(DWORD vk, unsigned flag) {
+    if (flag & F_WIN) return true;
+    if (flag & F_ALT) return !(flag & F_CONTROL) && vk != VK_BACK;
+    return vk == VK_ESCAPE && (flag & F_CONTROL);
+}
+/// Volume, media, browser and launch keys, PrintScreen: they go on and the picker stays open.
+static bool deviceKey(DWORD vk) { return vk == VK_SNAPSHOT || (vk >= VK_BROWSER_BACK && vk <= VK_LAUNCH_APP2); }
 void resetTyping() { ResetEnglishWord(true); _autoFixUndo.active = false; startNewSession(); }
 void insertText(const std::wstring& text) {
     resetTyping();
@@ -377,7 +400,7 @@ static void RememberAutoFix(int correctedCount) {
     _autoFixUndo.active = false;
     if (vAutoSwitchUndoCount <= 0 || correctedCount <= 0) return;
     for (int x = 0; x < vAutoSwitchUndoCount; x++) if ((vAutoSwitchUndoData[x] & 0xFFFF) == KEY_SPACE && !(vAutoSwitchUndoData[x] & CHAR_CODE_MASK)) return;
-    Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & F_CAPS) || (_flag & F_SHIFT) ? CAPS_MASK : 0));
+    Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & F_SHIFT) || ((_flag & F_CAPS) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only (Space + CAPS_MASK is 0)
     if (breakChar == 0) return;
     int n = 0;
     for (int x = 0; x < vAutoSwitchUndoCount && n < MAX_BUFF; x++) { wchar_t c = CharacterOf(vAutoSwitchUndoData[x]); if (c == 0) return; _autoFixUndo.text[n++] = c; }
@@ -433,6 +456,23 @@ static void ApplyAutoSwitchToEnglish(int correctedCount, bool atWordBreak) {
 static bool HandleEnglishKeyForAutoSwitch() {
     if (OTHER_CONTROL_KEY) { ResetEnglishWord(true); _enAfterShortcut = (_flag & (F_CONTROL | F_WIN)) != 0; return false; }
     bool shift = _flag & F_SHIFT; bool caps = shift || (_flag & F_CAPS);
+    if ((_keycode == KEY_LEFT || _keycode == KEY_RIGHT) && !shift) {   // D51: ← → round trip inside a word
+        if (_keycode == KEY_LEFT && _enNavOffset == 0 && (_enCount > 0 || _enPrevN > 0)) {
+            memcpy(_enNavKeys, _enKeys, _enCount * sizeof(Uint32)); _enNavCount = _enCount; _enNavValid = _enValid;
+            _enNavAfterDouble = _enAfterDouble; _enNavPrevN = _enPrevN; _enNavOffset = -1;
+            StartEnglishWord(false); _enAfterDouble = false; _enPrevN = 0;
+            return false;
+        }
+        if (_enNavOffset < 0) {
+            if (_keycode == KEY_LEFT) _enNavOffset--;
+            else if (++_enNavOffset == 0) {   // back at the word's end: it's that word again
+                memcpy(_enKeys, _enNavKeys, _enNavCount * sizeof(Uint32)); _enCount = _enNavCount; _enValid = _enNavValid;
+                _enAfterDouble = _enNavAfterDouble; _enPrevN = _enNavPrevN;
+            }
+            return false;
+        }
+    }
+    _enNavOffset = 0;
     if (IsLetterKey(_keycode)) { if (_enCount < MAX_BUFF - 2) _enKeys[_enCount++] = _keycode | (caps ? CAPS_MASK : 0); else _enValid = false; _enAfterShortcut = false; return false; }
     if (_keycode == KEY_DELETE) {
         if (_enCount == 0) { _enPrevN = 0; _enAfterDouble = false; }
@@ -495,42 +535,59 @@ static LRESULT CALLBACK keyboardHook(int nCode, WPARAM wParam, LPARAM lParam) {
 
     // modifier keys: track them, and detect a modifiers-only hotkey on release
     if (modifierVk(k->vkCode, down)) {
-        if (_lastFlag == 0 || _lastFlag < _flag) _lastFlag = _flag;
+        if (_modifierChordUsed) {   // Ctrl+Alt+Shift-click, then letting go of Alt and Shift one by one, must not switch
+            _lastFlag = 0;
+            if (!(_flag & (F_SHIFT | F_CONTROL | F_ALT | F_WIN))) _modifierChordUsed = false;
+        } else if (_lastFlag == 0 || _lastFlag < _flag) _lastFlag = _flag;
         else if (_lastFlag > _flag) {
             // only a hotkey without a key (a key hotkey fired on its key-down; _keycode is just the last key typed, so
             // Alt+Z, then Alt alone, flipped back). The key-up goes on: a swallowed one leaves the modifier held down.
-            bool hit = GET_SWITCH_KEY(vSwitchKeyStatus) == 0xFE && checkHotKey(vSwitchKeyStatus, false);
+            bool hit = GET_SWITCH_KEY(vSwitchKeyStatus) == 0xFE && checkHotKey(vSwitchKeyStatus, _lastFlag, false);
             _lastFlag = 0; _hasJustUsedHotKey = hit;
             if (hit) switchLanguage("hotkey");
         }
         return CallNextHookEx(_kbHook, nCode, wParam, lParam);
     }
-    if (!down) return CallNextHookEx(_kbHook, nCode, wParam, lParam);
+    if (!down) { if (k->vkCode == _hotkeyVk) _hotkeyVk = 0; return CallNextHookEx(_kbHook, nCode, wParam, lParam); }
 
     _keycode = engineKey(k->vkCode);
+    _keyVk = k->vkCode; _keyExtended = (k->flags & LLKHF_EXTENDED) ? KEYEVENTF_EXTENDEDKEY : 0;
     // emoji picker hotkey (opens and closes it): a key with exactly these modifiers
     if (vEmojiHotkey && GET_SWITCH_KEY(vEmojiHotkey) == _keycode &&
         HAS_CONTROL(vEmojiHotkey) == GET_BOOL(_flag & F_CONTROL) && HAS_OPTION(vEmojiHotkey) == GET_BOOL(_flag & F_ALT) &&
         HAS_COMMAND(vEmojiHotkey) == GET_BOOL(_flag & F_WIN) && HAS_SHIFT(vEmojiHotkey) == GET_BOOL(_flag & F_SHIFT)) {
+        cancelModifierHotkey();   // Ctrl+Shift+E: releasing Ctrl+Shift afterwards isn't the Ctrl+Shift hotkey
         if (_emojiHandler) _emojiHandler();
         return 1;
     }
-    // while open, the picker reads the keys for its search (it does its own Telex reading); the app in front keeps
+    // while open, the picker reads the keys it uses for its search (it does its own Telex reading); the app in front keeps
     // its cursor. Characters sent by other tools (VK_PACKET) go to it as characters.
     if (vEmojiOpen && vEmojiWindow) {
-        if (k->vkCode == VK_PACKET) PostMessageW(vEmojiWindow, WM_APP + 12, k->scanCode, 0);
-        else PostMessageW(vEmojiWindow, WM_APP + 10, k->vkCode, (LPARAM)_flag);
-        return 1;
+        if (k->vkCode == VK_PACKET) { PostMessageW(vEmojiWindow, WM_APP + 12, k->scanCode, 0); return 1; }
+        if (windowsShortcut(k->vkCode, _flag)) { vEmojiOpen = false; PostMessageW(vEmojiWindow, WM_APP + 11, 0, 0); }   // closes it (closed now: the next key goes to the app) and goes on as usual
+        else if (!deviceKey(k->vkCode)) { PostMessageW(vEmojiWindow, WM_APP + 10, k->vkCode, (LPARAM)_flag); return 1; }
     }
-    if (_keycode == KEY_EMPTY) return CallNextHookEx(_kbHook, nCode, wParam, lParam);   // F-keys, media keys...
+    if (_keycode == KEY_EMPTY) {   // F-keys, media keys...: not ours. A key typing a character still ends the word.
+        cancelModifierHotkey();   // Ctrl+Shift+F5, Ctrl+Shift+numpad +: releasing Ctrl+Shift afterwards isn't the hotkey
+        if (unmodeledKeyEndsWord(k->vkCode)) { TLEndWord("other"); resetTyping(); }
+        return CallNextHookEx(_kbHook, nCode, wParam, lParam);
+    }
+
+    // a password field gets the keys exactly as typed, in both languages: no switch hotkey (Shift+Z types Z, as under the
+    // Mac's secure input and Linux's password purpose), no Telex, no auto switch, no Backspace undo (also right after a
+    // focus change, until the field has been checked)
+    if (site::focusedIsPassword()) { cancelModifierHotkey(); _hotkeyVk = 0; resetTyping(); return CallNextHookEx(_kbHook, nCode, wParam, lParam); }
 
     // switch language hotkey
-    if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode) _lastFlag = 0;
-    else if (checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) { switchLanguage("hotkey"); _lastFlag = 0; _hasJustUsedHotKey = true; return 1; }
+    if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode) { cancelModifierHotkey(); _hotkeyVk = 0; }
+    else {
+        bool repeat = k->vkCode == _hotkeyVk; _hotkeyVk = k->vkCode;   // any press, matched or not: Alt+Shift+Z, then Shift up, mustn't switch on a repeat (the Mac's autorepeat flag)
+        if (checkHotKey(vSwitchKeyStatus, _flag, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
+            if (repeat) return 1;   // holding Alt+Z: switch once per press, swallow the auto-repeat
+            switchLanguage("hotkey"); _lastFlag = 0; _hasJustUsedHotKey = true; return 1;
+        }
+    }
     _hasJustUsedHotKey = _lastFlag != 0;
-
-    // a password field gets the keys exactly as typed, in both languages: no Telex, no auto switch, no Backspace undo
-    if (site::focusedIsPassword()) { resetTyping(); return CallNextHookEx(_kbHook, nCode, wParam, lParam); }
 
     // Backspace right after an automatic correction undoes it
     if (_keycode == KEY_DELETE && _autoFixUndo.active && !(OTHER_CONTROL_KEY)) { if (UndoAutoFixWithBackspace()) return 1; }
@@ -563,6 +620,8 @@ static LRESULT CALLBACK mouseHook(int nCode, WPARAM wParam, LPARAM lParam) {
             RECT r; GetWindowRect(vEmojiWindow, &r); POINT p = ((MSLLHOOKSTRUCT*)lParam)->pt;
             if (!PtInRect(&r, p)) PostMessageW(vEmojiWindow, WM_APP + 11, 0, 0);
         }
+        cancelModifierHotkey();   // Ctrl+Shift-click: the modifiers were for the click, so releasing them isn't the Ctrl+Shift hotkey
+        _hotkeyVk = 0;   // a missed key-up (focus change, lock screen) must not swallow the next Alt+Z
         _autoFixUndo.active = false; TLNoteClick();
         if (vLanguage == 0) ResetEnglishWord(true);
         else vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0);
@@ -570,7 +629,7 @@ static LRESULT CALLBACK mouseHook(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
 }
 
-static VOID CALLBACK foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) { updateOtherInputLanguage(); onForegroundChanged(); }
+static VOID CALLBACK foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) { _hotkeyVk = 0; updateOtherInputLanguage(); onForegroundChanged(); }
 
 bool start() {
     if (_kbHook) return true;
@@ -584,7 +643,7 @@ bool start() {
     _mouseHook = SetWindowsHookExW(WH_MOUSE_LL, mouseHook, inst, 0);
     _fgHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, foregroundHook, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     // focus moves (into a password field, say) are checked right away, not only on the 1 s poll
-    _focusHook = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, nullptr, [](HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) { site::pollPassword(); }, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    _focusHook = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, nullptr, [](HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) { site::pollPassword(h, obj, child); }, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     return _kbHook != nullptr;
 }
 void stop() {

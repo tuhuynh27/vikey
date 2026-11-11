@@ -19,6 +19,10 @@ void init(Output out);
 bool keyDown(Uint16 key, bool shift, unsigned flags);
 /// Modifier key press/release: tracks the modifiers-only hotkey. Returns true when it switched language.
 bool modifier(unsigned bit, bool down);
+/// A key press that goes to the app without keyDown (F-keys, a password field): releasing the modifiers held with it isn't the hotkey.
+void otherKeyDown();
+/// A key release (not a modifier).
+void keyUp(Uint16 key);
 void click();                       // a click, cursor move or reset: ends the word
 void focusChanged(const std::string& app);   // app in front changed (per-app memory)
 void reloadSettings();

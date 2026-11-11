@@ -25,7 +25,8 @@ void setLanguageObserver(std::function<void(int)> f);
 // Emoji picker (Settings.cpp): called on the hook thread when its hotkey is pressed (EmojiPicker / EmojiHotkey prefs).
 void setEmojiHotkeyHandler(std::function<void()> f);
 /// While open, key downs go to the picker window as WM_APP+10 (wParam = VK, lParam = modifier flags: 1 Shift,
-/// 2 Ctrl, 4 Alt, 8 Win, 16 Caps Lock) and a click outside it posts WM_APP+11; the app in front keeps its cursor.
+/// 2 Ctrl, 4 Alt, 8 Win, 16 Caps Lock); Windows' shortcuts (Alt+Tab, Win+D) or a click outside it post WM_APP+11
+/// (close) and go on as usual, media keys just go on. The app in front keeps its cursor.
 void setEmojiPickerOpen(bool open, HWND picker);
 /// Forget the word being typed (the cursor moved to another field without a click).
 void resetTyping();

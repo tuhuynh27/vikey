@@ -13,21 +13,27 @@ enum AIAssist {
     static var stub: Stub?
     #endif
 
+    /// Whether Apple Intelligence can answer here. Read from a cached value: asking the system can block for a while
+    /// on a cold start (seen as a keyboard that took no taps after a notification opened an app), so the keyboard
+    /// never asks on the main thread; `refresh()` asks off it when the keyboard appears.
     static var available: Bool {
         #if DEBUG
         if stub != nil { return true }
         #endif
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) { return SystemLanguageModel.default.isAvailable }
-        #endif
-        return false
+        return cachedAvailable
     }
+    private static var cachedAvailable = false
 
-    /// Starts the model early so the first answer is quicker (called when the keyboard appears).
-    static func prewarm() {
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable { Impl.prewarm() }
-        #endif
+    /// Asks the system off the main thread. No prewarm: loading the model at launch cost ~5 MB on top of a keyboard
+    /// close to iOS's memory limit; the first answer is a little slower instead.
+    static func refresh() {
+        DispatchQueue.global(qos: .utility).async {
+            var on = false
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { on = SystemLanguageModel.default.isAvailable }
+            #endif
+            DispatchQueue.main.async { cachedAvailable = on }
+        }
     }
 
     /// The selection with spelling, grammar and punctuation fixed, in its own language(s). nil if it failed.
@@ -106,14 +112,19 @@ private enum Impl {
     Never translate: Vietnamese words missing their accents are still Vietnamese, so add the accents. \
     Change as little as possible. Reply with only the corrected text: no intro, no quotes, no list, no explanation. \
     Examples: "she dont know" → "She doesn't know." "they was here yesterday" → "They were here yesterday." \
-    "toi da den nha ban" → "Tôi đã đến nhà bạn." "what time is it" → "What time is it?" "em gui anh file nhe" → "Em gửi anh file nhé."
+    "toi da den nha ban" → "Tôi đã đến nhà bạn." "what time is it" → "What time is it?" "em gui anh file nhe" → "Em gửi anh file nhé." \
+    "he have ate lunch an hour ago" → "He ate lunch an hour ago." "there is two problem" → "There are two problems." \
+    "her and me wants coffee" → "She and I want coffee." "it dont matter nothing" → "It doesn't matter at all."
+    "moi nguoi check list giup minh nhe" → "Mọi người check list giúp mình nhé." \
+    Keep every word that is already right, including English words inside Vietnamese text (check, team, list, sound): \
+    never swap a word for a synonym or a translation. Check every verb against its subject and against time words \
+    (yesterday, ago, last week: simple past).
     """
     static let nextRules = """
     You are a phone keyboard's next-word predictor. Given the text typed so far, give the 3 words most likely to come next. \
     Text can be Vietnamese, English or both; continue in the language the sentence is in. Each item is a single word.
     """
 
-    static func prewarm() { LanguageModelSession(instructions: proofreadRules).prewarm() }
 
     static func proofread(_ text: String) async -> String? {
         let s = LanguageModelSession(instructions: proofreadRules)

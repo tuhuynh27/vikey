@@ -303,7 +303,7 @@ static void startRecording(HWND c) { if (Recorder* r = rec(c)) { SetFocus(c); r-
 static void destroyChildren(HWND h) { std::vector<HWND> kids; for (HWND c = GetWindow(h, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) kids.push_back(c); for (HWND c : kids) DestroyWindow(c); }
 
 // ---- main window -----------------------------------------------------------------------------
-enum { C_SEG = 200, C_HOTKEY, C_BEEP, C_AUTO, C_PAUSE, C_SMART, C_SITE, C_MARK, C_SPELL, C_RESTORE, C_LOGIN, C_UPDATE, C_LOGKEYS, C_EMOJI, C_EMOJIKEY, C_FEEDBACK,
+enum { C_SEG = 200, C_HOTKEY, C_BEEP, C_AUTO, C_PAUSE, C_SMART, C_SITE, C_MARK, C_SPELL, C_RESTORE, C_LOGIN, C_UPDATE, C_LOGKEYS, C_EMOJI, C_EMOJIKEY, C_FEEDBACK, C_STYLE,
        L_REFRESH = 300, L_OPEN, L_CLEAR, A_LINK = 400, O_BACK = 500, O_NEXT, O_REC, O_BEEP, O_EMOJI, O_EMOJIKEY, O_EDIT = 520 };
 static const UINT WM_REBUILD = WM_APP + 20;
 static HWND _win, _seg, _hint, _logWin, _logList, _logSummary, _logGrid, _aboutWin, _onbWin, _ackWin, _tooltip;
@@ -381,6 +381,10 @@ static void buildMain() {
     toggleRow(L"Nhớ theo trang web", L"Trong Chrome, Edge, Brave, Vivaldi, Opera, Firefox: nhớ tiếng Anh hay tiếng Việt cho từng trang web. Chỉ đọc địa chỉ tab đang mở, ngay trên máy bạn.", C_SITE, prefs::getInt(L"SmartSwitchPerSite", 1) != 0);
     endGroup();
     beginGroup(L"Gõ tiếng Việt");
+    HWND style = row(L"Kiểu gõ", L"Telex: [ ra ơ, ] ra ư, w ra ư. Telex đơn giản 1: [ ] là dấu ngoặc, w đứng riêng vẫn là w. Telex đơn giản 2: [ ] là dấu ngoặc, w vẫn ra ư. Cả ba kiểu đều gõ uw, ow, aw ra ư, ơ, ă.", L"COMBOBOX", C_STYLE, 150, 200, CBS_DROPDOWNLIST | WS_TABSTOP);
+    for (const wchar_t* t : {L"Telex", L"Telex đơn giản 1", L"Telex đơn giản 2"}) SendMessageW(style, CB_ADDSTRING, 0, (LPARAM)t);
+    SendMessageW(style, CB_SETCURSEL, std::min(2, std::max(0, prefs::getInt(L"TelexStyle", 0))), 0);
+    SetWindowPos(style, nullptr, W - MARGIN - 16 - 150, _y - ROW + 4, 150, 200, SWP_NOZORDER);
     HWND mark = row(L"Đặt dấu", L"Vị trí dấu thanh với oa, oe, uy: kiểu mới (hoà, thuý) hoặc kiểu cũ (hòa, thúy).", L"COMBOBOX", C_MARK, 130, 200, CBS_DROPDOWNLIST | WS_TABSTOP);
     SendMessageW(mark, CB_ADDSTRING, 0, (LPARAM)L"hoà, thuý"); SendMessageW(mark, CB_ADDSTRING, 0, (LPARAM)L"hòa, thúy"); SendMessageW(mark, CB_SETCURSEL, prefs::getInt(L"ModernOrthography", 1) ? 0 : 1, 0);
     SetWindowPos(mark, nullptr, W - MARGIN - 16 - 130, _y - ROW + 4, 130, 200, SWP_NOZORDER);
@@ -421,6 +425,7 @@ static LRESULT CALLBACK mainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case C_PAUSE: flag(L"PauseAutoAfterManual"); break;
         case C_SMART: flag(L"UseSmartSwitchKey"); break;
         case C_SITE: flag(L"SmartSwitchPerSite"); break;
+        case C_STYLE: if (HIWORD(wp) == CBN_SELCHANGE) { prefs::setInt(L"TelexStyle", (int)SendMessageW(c, CB_GETCURSEL, 0, 0)); core::reloadSettings(); } break;
         case C_MARK: if (HIWORD(wp) == CBN_SELCHANGE) { prefs::setInt(L"ModernOrthography", SendMessageW(c, CB_GETCURSEL, 0, 0) == 0 ? 1 : 0); core::reloadSettings(); } break;
         case C_SPELL: flag(L"Spelling"); break;
         case C_RESTORE: flag(L"RestoreIfInvalidWord"); break;

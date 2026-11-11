@@ -27,6 +27,7 @@ struct Platform {                    // everything VikeyCore.mm keeps outside th
     int autoSwitches = 0, undos = 0;
     int runSide = -1, runCount = 0, earlySwitches = 0;   // Early Switch (D28)
     bool prevRestored = false;                           // prevKeys[0] was put back to English by auto switch (D35)
+    Uint32 navKeys[MAX_BUFF]; int navCount = 0, navPrevN = 0, navOffset = 0; bool navValid = true, navAfterDouble = false;   // D51
 };
 static Platform P;
 static int earlyN() { static int n = getenv("SIM_EARLY") ? atoi(getenv("SIM_EARLY")) : 0; return n; }
@@ -119,6 +120,23 @@ static void press(Uint16 key, bool shift) {
         return;
     }
     // English mode (HandleEnglishKeyForAutoSwitch)
+    if ((key == KEY_LEFT || key == KEY_RIGHT) && !shift) {   // D51: ← → round trip inside a word keeps the word
+        if (key == KEY_LEFT && P.navOffset == 0 && (P.enCount > 0 || P.prevN > 0)) {
+            memcpy(P.navKeys, P.enKeys, sizeof(P.enKeys)); P.navCount = P.enCount; P.navValid = P.enValid;
+            P.navAfterDouble = P.enAfterDouble; P.navPrevN = P.prevN; P.navOffset = -1;
+            P.enCount = 0; P.enValid = false; P.enAfterDouble = false; P.prevN = 0;
+            return;
+        }
+        if (P.navOffset < 0) {
+            if (key == KEY_LEFT) P.navOffset--;
+            else if (++P.navOffset == 0) {
+                memcpy(P.enKeys, P.navKeys, sizeof(P.enKeys)); P.enCount = P.navCount; P.enValid = P.navValid;
+                P.enAfterDouble = P.navAfterDouble; P.prevN = P.navPrevN;
+            }
+            return;
+        }
+    }
+    P.navOffset = 0;
     if (isLetterKey(key)) {
         if (P.enCount < MAX_BUFF - 2) P.enKeys[P.enCount++] = key | (shift ? CAPS_MASK : 0); else P.enValid = false;
         P.screen.push_back(typedChar(key, shift)); return;
@@ -163,7 +181,7 @@ static void press(Uint16 key, bool shift) {
 
 static void hotkey() {                        // switchLanguage(): a plain switch (undo is Backspace)
     P.undoActive = false;
-    P.enCount = 0; P.enValid = true; P.prevN = 0; P.enAfterDouble = false; vAutoSwitchForget(); P.runCount = 0;
+    P.enCount = 0; P.enValid = true; P.prevN = 0; P.enAfterDouble = false; P.navOffset = 0; vAutoSwitchForget(); P.runCount = 0;
     vLanguage = vLanguage ? 0 : 1;
     startNewSession();
 }
@@ -211,6 +229,7 @@ static int wrongWords(const U& a, const U& b) {
 }
 
 int main(int argc, char** argv) {
+    if (getenv("VIKEY_TEENCODE")) vTeencode = atoi(getenv("VIKEY_TEENCODE"));   // D53 experiments (on by default)
     if (getenv("SIM_BIGRAM")) vAutoSwitchSetBigrams(getenv("SIM_BIGRAM"), getenv("SIM_BIGRAM_W") ? atof(getenv("SIM_BIGRAM_W")) : 1.0f,
                                                      getenv("SIM_BIGRAM_MIN") ? atoi(getenv("SIM_BIGRAM_MIN")) : 3);   // D30 experiment
     if (getenv("SIM_TRIGRAM")) vAutoSwitchSetTrigrams(getenv("SIM_TRIGRAM"), getenv("SIM_TRIGRAM_W") ? atof(getenv("SIM_TRIGRAM_W")) : 2.0f,

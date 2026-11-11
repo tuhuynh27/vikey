@@ -4,7 +4,7 @@ pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0 glib-2.0 gio-2.0 gstrea
 pkg_check_modules(X11 IMPORTED_TARGET x11)
 include(GNUInstallDirs)
 
-add_executable(ibus-engine-vikey Engine.cpp Core.cpp Prefs.cpp)
+add_executable(ibus-engine-vikey Engine.cpp Core.cpp Prefs.cpp Crash.cpp)
 target_include_directories(ibus-engine-vikey PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(ibus-engine-vikey PRIVATE VIKEY_VERSION="${VIKEY_VERSION}" VIKEY_DATADIR="${CMAKE_INSTALL_FULL_DATADIR}/vikey")
 target_link_libraries(ibus-engine-vikey PRIVATE vikey_engine PkgConfig::IBUS)

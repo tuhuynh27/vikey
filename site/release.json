@@ -1,42 +1,53 @@
 {
-"version": "1.0.26",
-"download_url": "/downloads/Vikey-1.0.26.dmg",
-"sha256": "d80977afde3dff152ed4111aa225ad4cd32db189c701a100174ac11a510a48d7",
+"version": "1.0.32",
+"download_url": "/downloads/Vikey-1.0.32.dmg",
+"sha256": "6158212b36a0a5ce362249ac9cc04c40456139666dba503e55084b69e1fee2a5",
 "linux": {
-"version": "1.0.26",
+"version": "1.0.31",
+"pacman_arm64": {
+"download_url": "/downloads/vikey-1.0.31-1-aarch64.pkg.tar.zst",
+"sha256": "1a73e372efb19183327d388bcc53a2c631a9a7cac72e9983bb5d12e7f2c246bf"
+},
+"pacman_x64": {
+"download_url": "/downloads/vikey-1.0.31-1-x86_64.pkg.tar.zst",
+"sha256": "47e8fdd477563b60bc7b48695e66904b1c6bcf8ccbfd385ffaa8c2b67bc84c19"
+},
 "rpm_arm64": {
-"download_url": "/downloads/vikey-1.0.26-1.aarch64.rpm",
-"sha256": "176dbf51e1c52f92667a7a9c1da18e46a5fd4a11b48a55081209f72a5039f673"
+"download_url": "/downloads/vikey-1.0.31-1.aarch64.rpm",
+"sha256": "a83c218071203b39e42d53fffdfe8001ea7ea586e57434e3341ef0d7b2dceda6"
 },
 "rpm_x64": {
-"download_url": "/downloads/vikey-1.0.26-1.x86_64.rpm",
-"sha256": "451221c6b1a9709c6d7974326cbe75c7e426488027c22fa2db08c89c024308be"
+"download_url": "/downloads/vikey-1.0.31-1.x86_64.rpm",
+"sha256": "40d6a75652a3e36c386f91fb609fabbad31f1643d897944d4c7e140717b9b9e8"
 },
 "deb_x64": {
-"download_url": "/downloads/vikey_1.0.26_amd64.deb",
-"sha256": "892b4507ad88c39aa28216e9ae5ab646035d14fc6d060a92eeafceb486a786df"
+"download_url": "/downloads/vikey_1.0.31_amd64.deb",
+"sha256": "d7faa07f92cac421a2bb17f90b2a0b48b7abd5bbbca9df4b811617de7a30d251"
 },
 "deb_arm64": {
-"download_url": "/downloads/vikey_1.0.26_arm64.deb",
-"sha256": "ed42a708a9dd6a9e418b75c92418b06bc28d6c10c2f24466a5d9bd3e56e59162"
+"download_url": "/downloads/vikey_1.0.31_arm64.deb",
+"sha256": "f31848f4fc247b1f2c9000be1579a8fe0df5a46b80b3d03435437de1860dd20e"
 }
 },
 "windows": {
 "x64": {
-"download_url": "/downloads/Vikey-1.0.26-x64-Setup.exe",
-"portable_url": "/downloads/Vikey-1.0.26-x64-portable.zip",
-"sha256": "fc7f85ffd667eaa490459446ef1b604f7ebbaf08596ad8ed55e2b44231def3ef"
+"download_url": "/downloads/Vikey-1.0.31-x64-Setup.exe",
+"portable_url": "/downloads/Vikey-1.0.31-x64-portable.zip",
+"sha256": "a03a5864231f1b499e6802565f22a42ab7cd25a0c9d83f39b32d97989124768d"
 },
 "arm64": {
-"download_url": "/downloads/Vikey-1.0.26-arm64-Setup.exe",
-"portable_url": "/downloads/Vikey-1.0.26-arm64-portable.zip",
-"sha256": "948d4acab2f3ea27fec446db8ad7aa3219517cc4034edec845d07120f21ab333"
+"download_url": "/downloads/Vikey-1.0.31-arm64-Setup.exe",
+"portable_url": "/downloads/Vikey-1.0.31-arm64-portable.zip",
+"sha256": "4fa5b3b7e47d4a2316d4dec812dba282f9a3a597dc79ecbeedfb84c6a543d8f8"
 },
-"version": "1.0.26"
+"version": "1.0.31"
+},
+"ios": {
+"app_store_url": "https://apps.apple.com/app/id6827958793"
 },
 "android": {
-"version": "1.0.26",
-"download_url": "/downloads/Vikey-1.0.26.apk",
-"sha256": "dacd1fc1647c178025a20f10b5a1836b8798f8eeea7e397bde289e1fa74b3b4f"
+"version": "1.0.31",
+"download_url": "/downloads/Vikey-1.0.31.apk",
+"sha256": "523e25b6e659bab049de94e5792f2a2d75024dacd15aea4bbf4b04c1cd464eb9"
 }
 }

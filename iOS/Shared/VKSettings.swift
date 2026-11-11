@@ -11,6 +11,7 @@ enum VKSettings {
         static let autoSwitch = "AutoSwitchByTyping"
         static let pauseAfterManual = "PauseAutoAfterManual"
         static let modernOrthography = "ModernOrthography"
+        static let telexStyle = "TelexStyle"   // D56: 0 Telex, 1 Simple Telex 1, 2 Simple Telex 2
         static let spelling = "Spelling"
         static let restoreIfInvalid = "RestoreIfInvalidWord"
         static let englishForWebFields = "EnglishForWebFields"
@@ -20,10 +21,12 @@ enum VKSettings {
         static let diagnostics = "KeyboardDiagnostics"
         static let suggestions = "Suggestions"
         static let autoCorrect = "AutoCorrect"
+        /// The app's secret debug menu: "review:<time>" or "bug:<time>" shows that nudge the next time the keyboard opens.
+        static let debugNudge = "DebugNudge"
     }
 
     static let defaultValues: [String: Any] = [
-        Key.autoSwitch: true, Key.pauseAfterManual: true, Key.modernOrthography: true, Key.spelling: true,
+        Key.autoSwitch: true, Key.pauseAfterManual: true, Key.modernOrthography: true, Key.telexStyle: 0, Key.spelling: true,
         Key.restoreIfInvalid: true, Key.englishForWebFields: true,
         Key.autoCapitalize: true, Key.doubleSpacePeriod: true, Key.haptics: true, Key.diagnostics: false,
         Key.suggestions: true, Key.autoCorrect: true,

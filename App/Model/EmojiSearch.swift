@@ -10,7 +10,7 @@ struct Emoji: Hashable {
     let nameEN: String, nameVI: String
     let skins: [String]     // light … dark variants, empty when it has none
     let popularity: Int     // 0-10, breaks ties
-    fileprivate let terms: [Term]
+    fileprivate let texts: [(text: String, weight: Int)]   // names and keywords as given; searched once folded (prepareSearch)
 
     func withSkin(_ tone: Int) -> String { tone > 0 && skins.count == 5 ? skins[tone - 1] : char }
     static func == (a: Emoji, b: Emoji) -> Bool { a.char == b.char }
@@ -28,24 +28,41 @@ fileprivate struct Term {   // weight: name 3, keyword 2
 final class EmojiIndex {
     static let shared = EmojiIndex()
     let all: [Emoji]
+    /// The folded search words of each emoji (same order as `all`), built on the first search or by `prepareSearch()`:
+    /// the bulk of the index, so browsing never pays for it (iOS keyboard memory and opening time, Tony).
+    private var termTable: [[Term]]?
+    private let position: [String: Int]   // character → index in `all`
+    private let lock = NSLock()
 
     init(bundle: Bundle = .main) {
         guard let url = bundle.url(forResource: "Emoji", withExtension: "json") ?? Bundle(for: EmojiIndex.self).url(forResource: "Emoji", withExtension: "json"),
               let data = try? Data(contentsOf: url),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { all = []; return }
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { all = []; position = [:]; return }
         all = rows.compactMap { r in
             guard r.count >= 8, let c = r[0] as? String, let g = r[1] as? Int else { return nil }
             let v = (r[2] as? NSNumber)?.doubleValue ?? 0
             let en = r[3] as? String ?? "", vi = r[4] as? String ?? ""
-            var terms: [Term] = []
-            for s in [en, vi] where !s.isEmpty { terms.append(Term(s, weight: 3)) }
+            var texts: [(text: String, weight: Int)] = []
+            for s in [en, vi] where !s.isEmpty { texts.append((s, 3)) }
             for k in ((r[5] as? String ?? "") + " | " + (r[6] as? String ?? "")).components(separatedBy: " | ") where !k.isEmpty {
-                terms.append(Term(k, weight: 2))
+                texts.append((k, 2))
             }
             // emoticons (":D", "=))", "^_^") rank like names: typing one exactly puts its emoji first (Tony)
-            for t in (r.count > 9 ? (r[9] as? String ?? "") : "").split(separator: " ") { terms.append(Term(String(t), weight: 3)) }
-            return Emoji(char: c, group: g, version: v, nameEN: en, nameVI: vi, skins: r[7] as? [String] ?? [], popularity: r.count > 8 ? (r[8] as? Int ?? 0) : 0, terms: terms)
+            for t in (r.count > 9 ? (r[9] as? String ?? "") : "").split(separator: " ") { texts.append((String(t), 3)) }
+            return Emoji(char: c, group: g, version: v, nameEN: en, nameVI: vi, skins: r[7] as? [String] ?? [], popularity: r.count > 8 ? (r[8] as? Int ?? 0) : 0, texts: texts)
         }
+        position = Dictionary(all.enumerated().map { ($1.char, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Builds the search words (fold, split) for every emoji. Safe from any thread; call it ahead of a search box.
+    func prepareSearch() {
+        lock.lock(); defer { lock.unlock() }
+        guard termTable == nil else { return }
+        termTable = all.map { e in e.texts.map { Term($0.text, weight: $0.weight) } }
+    }
+
+    /// The emoji for a character (Frequently Used is stored as characters).
+    func emoji(_ char: String) -> Emoji? { position[char].map { all[$0] }
     }
 
     /// Best matches first. `raw` is the keys as typed; the Telex reading of the same keys is searched too,
@@ -57,9 +74,12 @@ final class EmojiIndex {
         let t = Telex.convert(q); if t != q { variants.append(t) }   // in English mode too: "nguwaj" still finds 🐎
         let queries = variants.map { v in v.split(separator: " ").map { (exact: String($0), folded: EmojiIndex.fold(String($0))) } }
         var scored: [(Int, Int, Emoji)] = []
+        prepareSearch()
+        guard let table = termTable else { return [] }
         for (i, e) in (list ?? all).enumerated() {
+            guard let at = list == nil ? i : position[e.char] else { continue }
             var best = 0
-            for words in queries { best = max(best, score(words, e.terms)) }
+            for words in queries { best = max(best, score(words, table[at])) }
             if best > 0 { scored.append((best * 2 + e.popularity, i, e)) }
         }
         scored.sort { $0.0 != $1.0 ? $0.0 > $1.0 : $0.1 < $1.1 }

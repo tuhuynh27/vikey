@@ -19,7 +19,7 @@ final class EmojiPicker {
     /// At launch: the hotkey handler, and the panel built ahead of time so it opens instantly.
     func install() {
         VikeyCore.setEmojiHotkeyHandler { [weak self] in self?.toggle() }
-        DispatchQueue.global(qos: .userInitiated).async { _ = EmojiIndex.shared }
+        DispatchQueue.global(qos: .userInitiated).async { EmojiIndex.shared.prepareSearch() }   // the Mac panel opens on a search box
         DispatchQueue.main.async { if UserDefaults.standard.integer(forKey: PrefEmoji.enabled) != 0 { self.prepare() } }
     }
 
@@ -262,7 +262,6 @@ struct EmojiGridView: View {
     static let cell: CGFloat = 44
     static let width = CGFloat(columns) * cell + 24
     @ObservedObject var model: EmojiPickerModel
-    @State private var caret = true
 
     static let groupNames = ["Mặt cười & cảm xúc", "Người & cơ thể", "", "Động vật & thiên nhiên", "Đồ ăn & thức uống",
                                      "Du lịch & địa điểm", "Hoạt động", "Đồ vật", "Biểu tượng", "Cờ"]
@@ -286,7 +285,7 @@ struct EmojiGridView: View {
             HStack(spacing: 1) {
                 Text(model.display).lineLimit(1)
                     .background(model.allSelected ? Color.accentColor.opacity(0.3) : .clear, in: RoundedRectangle(cornerRadius: 3))
-                Rectangle().fill(Color.brand).frame(width: 2, height: 18).opacity(caret && !model.allSelected ? 1 : 0)
+                BlinkingCaret().opacity(model.allSelected ? 0 : 1)
                 if model.raw.isEmpty {
                     Text(model.vietnamese ? "Tìm emoji: ngựa, horse…" : "Search emoji: horse, ngựa…").foregroundStyle(.tertiary).padding(.leading, 2)
                 }
@@ -296,7 +295,6 @@ struct EmojiGridView: View {
             Text(model.vietnamese ? "VI" : "EN").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
         }
-        .onReceive(Timer.publish(every: 0.53, on: .main, in: .common).autoconnect()) { _ in caret.toggle() }
     }
 
     private var grid: some View {
@@ -383,5 +381,14 @@ struct EmojiGridView: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .help(model.vietnamese ? "Màu da" : "Skin tone")
         }
+    }
+}
+
+/// The search field's caret. Its own view, so each blink redraws only the caret, not the whole emoji grid.
+private struct BlinkingCaret: View {
+    @State private var on = true
+    var body: some View {
+        Rectangle().fill(Color.brand).frame(width: 2, height: 18).opacity(on ? 1 : 0)
+            .onReceive(Timer.publish(every: 0.53, on: .main, in: .common).autoconnect()) { _ in on.toggle() }
     }
 }

@@ -448,11 +448,12 @@ static int cellAt(int px, int py) {   // index of the emoji under the point (cli
 }
 static wchar_t charFor(DWORD vk, unsigned flags) {
     BYTE ks[256] = {}; if (flags & 1) ks[VK_SHIFT] = 0x80; if (flags & 16) ks[VK_CAPITAL] = 1;
+    if ((flags & 6) == 6) ks[VK_CONTROL] = ks[VK_MENU] = 0x80;   // AltGr (Ctrl+Alt): @ on German, ł on Polish
     wchar_t buf[8] = {}; HKL hkl = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), nullptr));
     int n = ToUnicodeEx(vk, MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, hkl), ks, buf, 8, 1 << 2, hkl);
     return n == 1 && buf[0] >= 0x20 ? buf[0] : 0;
 }
-static void onKey(DWORD vk, unsigned flags) {   // from the keyboard hook (WM_APP+10); EmojiPanel.keyDown
+static void onKey(DWORD vk, unsigned flags) {   // from the keyboard hook (WM_APP+10; Windows' shortcuts and media keys don't come here); EmojiPanel.keyDown
     bool ctrl = flags & 2, alt = flags & 4, win = flags & 8;
     switch (vk) {
     case VK_ESCAPE: if (_raw.empty()) close(); else setRaw(L""); break;   // Esc: clears the search, then closes
@@ -470,7 +471,7 @@ static void onKey(DWORD vk, unsigned flags) {   // from the keyboard hook (WM_AP
             else if (vk == 'W') { close(); return; }
             break;
         }
-        if (alt || win) break;
+        if ((alt && !ctrl) || win) break;
         if (wchar_t c = charFor(vk, flags)) typeText(std::wstring(1, c));
     }
     if (_win) InvalidateRect(_win, nullptr, FALSE);

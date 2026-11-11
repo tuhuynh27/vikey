@@ -12,6 +12,8 @@ import FoundationModels
 /// Probe: Apple Intelligence proofreading and word alternatives (Vietnamese, English, mixed), with timings.
 final class AppleIntelligenceProofreadProbe: XCTestCase {
     func testProofread() async throws {
+        // exploratory: prints what the model says (run by hand). CI machines report the model but can't run it
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VIKEY_CI"] != nil, "Apple Intelligence probe: not on CI")
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable else { print("PROBE unavailable"); return }
         let fix = "Fix spelling, grammar and punctuation in the user's text. Keep the meaning, the language(s) and the tone. If the text mixes Vietnamese and English, keep the mix. Reply with only the corrected text."

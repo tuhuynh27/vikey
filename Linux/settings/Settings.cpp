@@ -1,7 +1,8 @@
 // vikey-settings: the Vikey window on Linux (GTK4 + libadwaita), 1:1 with the Mac app's MainView:
 // header (icon, Vikey, hotkey hint, Tiếng Việt / English), grouped rows with switches and (?) tips.
 // Also: the typing-log window (--log), About (--about) with Ghi nhận (--acknowledgements), the first-run guide
-// (--guide, Guide.cpp), the emoji picker (--emoji, Emoji.cpp) and the update check (--check-update [--quiet]).
+// (--guide, Guide.cpp), the emoji picker (--emoji, Emoji.cpp), the update check (--check-update [--quiet]) and the
+// crash report question (--crash-report [--dialog], CrashReport.cpp).
 // Settings live in ~/.config/vikey/settings.json; the IBus engine watches that file.
 #include "Common.h"
 #include <vector>
@@ -122,6 +123,7 @@ void spawnSelf(const char* arg) { gchar* argv[] = {(gchar*)"vikey-settings", (gc
 
 // ---- main window ----------------------------------------------------------------------------------------------
 static GtkWidget* _hint; static GtkWidget* _seg[2]; static GtkWidget* _hotkeyRec; static GtkWidget *_emojiRow, *_emojiRec, *_setupLink, *_loginSw;
+static GtkWidget* _mainWin; static guint _mainTick;
 static std::map<std::string, GtkWidget*> _sw;
 static void setHint() { gtk_label_set_text(GTK_LABEL(_hint), ("Bấm " + hotkeyDisplay(currentHotkey()) + " để chuyển").c_str()); recorderRefresh(_hotkeyRec); }
 static void refreshEnabled() {
@@ -132,6 +134,7 @@ static void refreshEnabled() {
 static void syncSeg() { int vi = prefs::getInt("InputMethod", 1); gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(_seg[0]), vi); gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(_seg[1]), !vi); }
 static gboolean onSwitch(GtkSwitch* s, gboolean state, gpointer key) { prefs::setInt((const char*)key, state ? 1 : 0); gtk_switch_set_state(s, state); if (_hint) refreshEnabled(); return TRUE; }
 static void onSeg(GtkToggleButton* b, gpointer which) { if (!gtk_toggle_button_get_active(b)) return; if ((prefs::getInt("InputMethod", 1) != 0) == (GPOINTER_TO_INT(which) == 0)) return; prefs::sendCommand(GPOINTER_TO_INT(which) == 0 ? "lang vi user" : "lang en user"); }
+static void onStyle(GObject* dd, GParamSpec*, gpointer) { prefs::setInt("TelexStyle", (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(dd))); }
 static void onMark(GObject* dd, GParamSpec*, gpointer) { prefs::setInt("ModernOrthography", gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)) == 0 ? 1 : 0); }
 static gboolean onBeep(GtkSwitch* s, gboolean state, gpointer) { int hk = (currentHotkey() & ~0x8000) | (state ? 0x8000 : 0); prefs::setInt("SwitchKeyStatus", hk); gtk_switch_set_state(s, state); return TRUE; }
 GtkWidget* switchHotkeyRecorder() { return recorderNew([] { return currentHotkey(); }, [](int k) { prefs::setInt("SwitchKeyStatus", k | (currentHotkey() & 0x8000)); }, true, false); }
@@ -195,6 +198,10 @@ void buildMain(GtkApplication* app) {
     switchRow(g2, "Nhớ theo ứng dụng", "Vikey nhớ bạn dùng tiếng Anh hay tiếng Việt ở mỗi ứng dụng và tự chuyển lại khi bạn quay về ứng dụng đó. Trên Wayland chỉ với ứng dụng X11.", "UseSmartSwitchKey", 1);
     // Vietnamese typing
     GtkWidget* g3 = group(page, "Gõ tiếng Việt");
+    GtkWidget* styleRow = row(g3, "Kiểu gõ", "Telex: [ ra ơ, ] ra ư, w ra ư. Telex đơn giản 1: [ ] là dấu ngoặc, w đứng riêng vẫn là w. Telex đơn giản 2: [ ] là dấu ngoặc, w vẫn ra ư. Cả ba kiểu đều gõ uw, ow, aw ra ư, ơ, ă.");
+    const char* styles[] = {"Telex", "Telex đơn giản 1", "Telex đơn giản 2", nullptr}; GtkWidget* sd = gtk_drop_down_new_from_strings(styles); gtk_widget_set_valign(sd, GTK_ALIGN_CENTER);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(sd), (guint)std::min(2, std::max(0, prefs::getInt("TelexStyle", 0))));
+    g_signal_connect(sd, "notify::selected", G_CALLBACK(onStyle), nullptr); adw_action_row_add_suffix(ADW_ACTION_ROW(styleRow), sd);
     GtkWidget* markRow = row(g3, "Đặt dấu", "Vị trí dấu thanh với oa, oe, uy: kiểu mới (hoà, thuý) hoặc kiểu cũ (hòa, thúy).");
     const char* marks[] = {"hoà, thuý", "hòa, thúy", nullptr}; GtkWidget* dd = gtk_drop_down_new_from_strings(marks); gtk_widget_set_valign(dd, GTK_ALIGN_CENTER); gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), prefs::getInt("ModernOrthography", 1) ? 0 : 1);
     g_signal_connect(dd, "notify::selected", G_CALLBACK(onMark), nullptr); adw_action_row_add_suffix(ADW_ACTION_ROW(markRow), dd);
@@ -211,12 +218,16 @@ void buildMain(GtkApplication* app) {
     _loginSw = gtk_switch_new(); gtk_widget_set_valign(_loginSw, GTK_ALIGN_CENTER); gtk_widget_set_sensitive(_loginSw, FALSE);
     GtkWidget* lr = row(g5, "Mở Vikey khi đăng nhập", "IBus tự mở Vikey mỗi khi bạn đăng nhập, khi Vikey có trong Cài đặt › Bàn phím › Nguồn nhập."); adw_action_row_add_suffix(ADW_ACTION_ROW(lr), _loginSw);
     switchRow(g5, "Tự động cập nhật", "Mỗi ngày Vikey kiểm tra bản mới trên vikey.app và báo cho bạn khi có. Bản mới cài bằng gói .deb/.rpm từ vikey.app.", "AutoUpdate", 1);
+    switchRow(g5, "Tự gửi báo cáo lỗi", "Khi Vikey bị thoát đột ngột, tự gửi báo cáo lỗi lần mở sau mà không hỏi. Báo cáo chỉ có thông tin kỹ thuật: vị trí lỗi trong mã, phiên bản Vikey và Linux. Không có chữ bạn đã gõ.", "CrashReportsAuto", 0);
     // send feedback (main, 1.0.25): opens vikey.app/feedback in the browser, with the platform and version
     GtkWidget* fb = row(g5, "Góp ý", "Báo lỗi hoặc góp ý cho Vikey: mở trang vikey.app/feedback trong trình duyệt.");   // same row as the Mac's
     GtkWidget* fbBtn = gtk_button_new_with_label("Gửi góp ý…"); gtk_widget_set_valign(fbBtn, GTK_ALIGN_CENTER);
     g_signal_connect(fbBtn, "clicked", G_CALLBACK(onFeedback), nullptr); adw_action_row_add_suffix(ADW_ACTION_ROW(fb), fbBtn);
     setHint(); refreshEnabled(); refreshSetup();
-    g_timeout_add_seconds(2, [](gpointer) -> gboolean { refreshSetup(); return TRUE; }, nullptr);
+    _mainWin = win;
+    if (_mainTick) { g_source_remove(_mainTick); _mainTick = 0; }
+    _mainTick = g_timeout_add_seconds(2, [](gpointer) -> gboolean { if (!_mainWin) return G_SOURCE_REMOVE; refreshSetup(); return G_SOURCE_CONTINUE; }, nullptr);
+    g_signal_connect(win, "destroy", G_CALLBACK(+[](GtkWidget*, gpointer) { _mainWin = nullptr; if (_mainTick) { g_source_remove(_mainTick); _mainTick = 0; } }), nullptr);
     GFileMonitor* mon = g_file_monitor_file(g_file_new_for_path(prefs::settingsPath().c_str()), G_FILE_MONITOR_WATCH_MOVES, nullptr, nullptr); if (mon) g_signal_connect(mon, "changed", G_CALLBACK(onSettingsFile), nullptr);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(tv), page); adw_application_window_set_content(ADW_APPLICATION_WINDOW(win), tv);
     gtk_window_present(GTK_WINDOW(win));
@@ -236,7 +247,8 @@ static int statSum(int days, const char* name) {
 }
 static std::string jget(const std::string& j, const char* key) { std::string k = std::string("\"") + key + "\":"; size_t p = j.find(k); if (p == std::string::npos) return ""; p += k.size(); if (j[p] == '"') { size_t e = p + 1; std::string o; while (e < j.size() && j[e] != '"') { if (j[e] == '\\' && e + 1 < j.size()) { e++; } o += j[e]; e++; } return o; } size_t e = j.find_first_of(",}", p); return j.substr(p, e - p); }
 static void onOpenLog(GtkButton*, gpointer) { std::string d = tlDataDir(); gchar* argv[] = {(gchar*)"xdg-open", (gchar*)d.c_str(), nullptr}; g_spawn_async(nullptr, argv, nullptr, (GSpawnFlags)G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr, nullptr); }
-static void onClearLog(GtkButton*, gpointer) { ::remove((tlDataDir() + "/typing-log.jsonl").c_str()); ::remove((tlDataDir() + "/typing-log.1.jsonl").c_str()); for (auto& k : prefs::keys()) if (k.rfind("TLStat_", 0) == 0) prefs::remove(k.c_str()); }
+// cleared here (the engine may not be running) and by the engine, which keeps counters and log lines in memory
+static void onClearLog(GtkButton*, gpointer) { ::remove((tlDataDir() + "/typing-log.jsonl").c_str()); ::remove((tlDataDir() + "/typing-log.1.jsonl").c_str()); prefs::clearStats(); prefs::sendCommand("clear-log"); }
 
 static void buildLog(GtkApplication* app) {
     GtkWidget* win = adw_application_window_new(app); gtk_window_set_title(GTK_WINDOW(win), "Nhật ký gõ"); gtk_window_set_default_size(GTK_WINDOW(win), 720, 720);
@@ -392,7 +404,7 @@ void checkUpdate(GtkApplication* app, bool quiet) {
 }
 
 // ---- entry ------------------------------------------------------------------------------------------------------
-static std::string _mode; static bool _quiet = false;
+static std::string _mode; static bool _quiet = false, _dialog = false;
 static void onActivate(GtkApplication* app, gpointer) {
     loadCss();
     if (_mode == "--log") buildLog(app);
@@ -401,11 +413,12 @@ static void onActivate(GtkApplication* app, gpointer) {
     else if (_mode == "--guide") buildGuide(app, false);
     else if (_mode == "--emoji") buildEmoji(app);
     else if (_mode == "--check-update") checkUpdate(app, _quiet);
+    else if (_mode == "--crash-report") crashReport(app, _dialog);
     else if (!prefs::getInt("OnboardingDone", 0)) buildGuide(app, true);   // first run: the guide, then this window
     else buildMain(app);
 }
 int main(int argc, char** argv) {
-    for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--quiet")) _quiet = true; else if (!strncmp(argv[i], "--", 2)) _mode = argv[i]; }
+    for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--quiet")) _quiet = true; else if (!strcmp(argv[i], "--dialog")) _dialog = true; else if (!strncmp(argv[i], "--", 2)) _mode = argv[i]; }
     AdwApplication* app = adw_application_new(_mode == "--emoji" ? "app.vikey.Emoji" : "app.vikey.Settings", G_APPLICATION_NON_UNIQUE);
     g_signal_connect(app, "activate", G_CALLBACK(onActivate), nullptr);
     return g_application_run(G_APPLICATION(app), 0, nullptr);

@@ -14,6 +14,20 @@ struct MenuBarContent: View {
             Text("Tiếng Việt   \(Hotkey(raw: hotkeyRaw).display)")
         }
         Toggle("Tự chuyển Anh/Việt", isOn: Binding(get: { autoSwitch == 1 }, set: { autoSwitch = $0 ? 1 : 0; Preferences.apply() }))
+        // Per app: remembered for the app in front (the tick makes SwiftUI re-read it after an app change).
+        if state.frontAppTick >= 0 {
+            let app = VikeyCore.frontAppName()
+            if VikeyCore.frontAppIsExcluded() {
+                Text("\(app): đã loại trừ").foregroundStyle(.secondary)
+            } else {
+                Toggle("Tự chuyển ở \(app)", isOn: Binding(
+                    get: { VikeyCore.autoSwitchEnabledForFrontApp() },
+                    set: {
+                        VikeyCore.setAutoSwitchForFrontApp($0)
+                        state.frontAppChanged()
+                    }))
+            }
+        }
         Divider()
         Button("Mở Vikey…") { Windows.main.show() }
             .keyboardShortcut(",")

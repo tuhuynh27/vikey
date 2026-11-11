@@ -101,7 +101,8 @@ final class EmojiKeyboardView: UIView, UICollectionViewDataSource, UICollectionV
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Builds the categories (the index loads in the background when the keyboard opens, so this is quick).
+    /// Builds the categories from the light index (characters and groups). The search words (+5 MB) are built only
+    /// when the search box opens, in the background while the user starts typing.
     func load() {
         guard categories.isEmpty else { reloadRecents(); return }
         let all = EmojiIndex.shared.all.filter { $0.version <= Self.maxVersion }
@@ -135,15 +136,15 @@ final class EmojiKeyboardView: UIView, UICollectionViewDataSource, UICollectionV
 
     private func reloadRecents() {
         guard !categories.isEmpty else { return }
-        let byChar = Dictionary(EmojiIndex.shared.all.map { ($0.char, $0) }, uniquingKeysWith: { a, _ in a })
         let list = EmojiUsage.frequent(in: VKSettings.defaults, count: 30)   // 6 columns of 5, like the system
-        categories[0].items = list.compactMap { byChar[$0] }
+        categories[0].items = list.compactMap { EmojiIndex.shared.emoji($0) }
         grid.reloadData()
     }
 
     // MARK: modes
 
     func setSearching(_ on: Bool) {
+        if on { DispatchQueue.global(qos: .userInitiated).async { EmojiIndex.shared.prepareSearch() } }
         searching = on
         grid.setCollectionViewLayout(on ? flow : browse, animated: false)
         results = []

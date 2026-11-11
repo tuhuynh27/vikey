@@ -3,7 +3,7 @@
 **What it fixes or adds**
 
 
-**Screenshot or video of the problem**
+**Screenshot or video** (required for a new feature or a change of behaviour: show the new behaviour; for a bug fix, show the bug)
 
 
 **Before**

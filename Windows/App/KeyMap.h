@@ -18,6 +18,10 @@ inline Uint16 engineKey(DWORD vk) {
         case 'Z': return KEY_Z;
         case '0': return KEY_0; case '1': return KEY_1; case '2': return KEY_2; case '3': return KEY_3; case '4': return KEY_4;
         case '5': return KEY_5; case '6': return KEY_6; case '7': return KEY_7; case '8': return KEY_8; case '9': return KEY_9;
+        // numpad digits (Num Lock on) are digits like the top row: they type the same character, and digits after a
+        // space start a word of their own ("5trawm" -> "5trăm", D33)
+        case VK_NUMPAD0: return KEY_0; case VK_NUMPAD1: return KEY_1; case VK_NUMPAD2: return KEY_2; case VK_NUMPAD3: return KEY_3; case VK_NUMPAD4: return KEY_4;
+        case VK_NUMPAD5: return KEY_5; case VK_NUMPAD6: return KEY_6; case VK_NUMPAD7: return KEY_7; case VK_NUMPAD8: return KEY_8; case VK_NUMPAD9: return KEY_9;
         case VK_SPACE: return KEY_SPACE;
         case VK_RETURN: return KEY_RETURN;
         case VK_BACK: return KEY_DELETE;       // Backspace is the engine's "delete"
@@ -40,6 +44,19 @@ inline Uint16 engineKey(DWORD vk) {
         case VK_SNAPSHOT: case VK_PRINT: case VK_SELECT: case VK_HELP: case VK_EXECUTE: case VK_NUMLOCK: case VK_SCROLL:
             return KEY_ESC;
         default: return KEY_EMPTY;
+    }
+}
+
+/// Keys the engine has no code for that still end the word: the ones typing a character (numpad operators, the
+/// ISO key next to left Shift...) and Clear (numpad 5 with Num Lock off). The engine never sees them, so the hook
+/// ends the word on them: otherwise the next letter would join the letters typed before ("a", numpad +, "a" gave
+/// "aâ"). Not mapped to KEY_ESC, which hotkeys can use.
+inline bool unmodeledKeyEndsWord(DWORD vk) {
+    switch (vk) {
+        case VK_DECIMAL: case VK_ADD: case VK_SUBTRACT: case VK_MULTIPLY: case VK_DIVIDE: case VK_SEPARATOR:
+        case VK_OEM_102: case VK_OEM_8: case VK_CLEAR:
+            return true;
+        default: return false;
     }
 }
 

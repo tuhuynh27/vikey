@@ -21,6 +21,10 @@
     <string name="web_english">Tiếng Anh cho web, email</string>
     <string name="web_english_tip">Trong ô nhập địa chỉ web, email hoặc tìm kiếm web, Vikey bắt đầu bằng tiếng Anh và quay lại ngôn ngữ cũ khi bạn rời ô đó.</string>
     <string name="sec_vietnamese">Gõ tiếng Việt</string>
+    <string name="telex_style">Kiểu gõ</string>
+    <string name="telex_style_tip">Telex và Telex đơn giản 2: w đứng riêng ra ư. Telex đơn giản 1: w đứng riêng vẫn là w. Cả ba kiểu đều gõ uw, ow, aw ra ư, ơ, ă. Trên bàn phím điện thoại, [ và ] luôn là dấu ngoặc.</string>
+    <string name="telex_simple1">Telex đơn giản 1</string>
+    <string name="telex_simple2">Telex đơn giản 2</string>
     <string name="tone_placement">Đặt dấu</string>
     <string name="tone_placement_tip">Vị trí dấu thanh với oa, oe, uy: kiểu mới (hoà, thuý) hoặc kiểu cũ (hòa, thúy).</string>
     <string name="spelling">Kiểm tra chính tả</string>

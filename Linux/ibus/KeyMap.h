@@ -13,6 +13,9 @@ inline MappedKey engineKey(guint keyval) {
         case IBUS_KEY_5: return {KEY_5, false}; case IBUS_KEY_6: return {KEY_6, false}; case IBUS_KEY_7: return {KEY_7, false}; case IBUS_KEY_8: return {KEY_8, false}; case IBUS_KEY_9: return {KEY_9, false};
         case IBUS_KEY_parenright: return {KEY_0, true}; case IBUS_KEY_exclam: return {KEY_1, true}; case IBUS_KEY_at: return {KEY_2, true}; case IBUS_KEY_numbersign: return {KEY_3, true}; case IBUS_KEY_dollar: return {KEY_4, true};
         case IBUS_KEY_percent: return {KEY_5, true}; case IBUS_KEY_asciicircum: return {KEY_6, true}; case IBUS_KEY_ampersand: return {KEY_7, true}; case IBUS_KEY_asterisk: return {KEY_8, true}; case IBUS_KEY_parenleft: return {KEY_9, true};
+        // numpad digits (Num Lock on) are digits like the top row ("5trawm" -> "5trăm" works the same, D33)
+        case IBUS_KEY_KP_0: return {KEY_0, false}; case IBUS_KEY_KP_1: return {KEY_1, false}; case IBUS_KEY_KP_2: return {KEY_2, false}; case IBUS_KEY_KP_3: return {KEY_3, false}; case IBUS_KEY_KP_4: return {KEY_4, false};
+        case IBUS_KEY_KP_5: return {KEY_5, false}; case IBUS_KEY_KP_6: return {KEY_6, false}; case IBUS_KEY_KP_7: return {KEY_7, false}; case IBUS_KEY_KP_8: return {KEY_8, false}; case IBUS_KEY_KP_9: return {KEY_9, false};
         case IBUS_KEY_space: return {KEY_SPACE, false};
         case IBUS_KEY_Return: return {KEY_RETURN, false}; case IBUS_KEY_KP_Enter: return {KEY_ENTER, false};
         case IBUS_KEY_BackSpace: return {KEY_DELETE, false};

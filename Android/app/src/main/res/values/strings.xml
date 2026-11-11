@@ -23,6 +23,10 @@
     <string name="web_english">English for web &amp; email</string>
     <string name="web_english_tip">In web address, email and web search fields, Vikey starts in English and goes back to your previous language when you leave the field.</string>
     <string name="sec_vietnamese">Vietnamese typing</string>
+    <string name="telex_style">Typing style</string>
+    <string name="telex_style_tip">Telex and Simple Telex 2: a lone w types ư. Simple Telex 1: a lone w stays w. In all three, uw, ow and aw type ư, ơ and ă. On the phone keyboard, [ and ] are always brackets.</string>
+    <string name="telex_simple1">Simple Telex 1</string>
+    <string name="telex_simple2">Simple Telex 2</string>
     <string name="tone_placement">Tone placement</string>
     <string name="tone_placement_tip">Where the tone mark goes on oa, oe, uy: new style (hoà, thuý) or old style (hòa, thúy).</string>
     <string name="spelling">Spell check</string>

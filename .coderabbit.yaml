@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit AI review for Vikey (installed 2026-10-30 on tonyminibot/Vikey only).
+# It reviews pull requests statically; nothing here runs contributor code.
+language: "en-US"
+reviews:
+  profile: "chill"
+  request_changes_workflow: true    # Tony 2026-10-31: CodeRabbit requests changes on real issues and approves once they are resolved
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main"]
+  path_instructions:
+    - path: "Engine/**"
+      instructions: >-
+        Shared typing engine used by every platform (macOS, Windows, Linux, iOS, Android). Check buffer bounds
+        (MAX_BUFF, TypingWord, KeyStates), state reset between words, and that behaviour changes come with a case in
+        Tools/autoswitch/rules/rules.tsv and, for a new rule, an entry in DECISIONS.md.
+    - path: "App/**"
+      instructions: "macOS app (Swift + the Objective-C++ event tap in App/Core/VikeyCore.mm). Watch for main-thread work in the event tap and for logging of typed text."
+    - path: "Windows/**"
+      instructions: "Windows port (Win32 low-level keyboard hook, SendInput, UI Automation). The hook must stay fast and never swallow key-ups; password fields must pass keys through untouched."
+    - path: "Linux/**"
+      instructions: "Linux IBus engine + GTK4/libadwaita settings app. Keep IBus callbacks non-blocking; password/PIN fields must pass keys through."
+    - path: "iOS/**"
+      instructions: "iOS keyboard extension + app. One text-document read per key at most (see the performance tests); no network access from the keyboard."
+    - path: "Android/**"
+      instructions: "Android InputMethodService + JNI bridge to Engine/. Password fields type exactly what is pressed; keep JNI signatures in sync with cpp/vikey_jni.cpp."
+    - path: ".github/**"
+      instructions: "Security-sensitive: CI workflows. Flag any change to triggers (pull_request_target), permissions, secrets use, or new third-party actions."
+    - path: "Tools/release/**"
+      instructions: "Security-sensitive: signing, notarization, update feed (appcast) and site deploy. Flag anything that changes signing keys, download URLs or verification."
+chat:
+  auto_reply: true

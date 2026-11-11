@@ -1,0 +1,32 @@
+# Every decision in DECISIONS.md has a test, or says why it has none (decisions.py; check.sh runs it).
+# Decisions with cases tagged D<n> in rules.tsv, telex_simple*.tsv or reported.tsv need no row here.
+# decision	kind	what
+#   test: the tests that lock it, as path::text found in that file (repo-relative), separated by " ; "
+#   none: no typing behavior to test (process, website, rejected or not built)
+#   open: behavior without an automated test yet (counted; the scorecard shows them)
+D1	open	Mac event tap that stops until a restart: app-level (VikeyCore.mm), needs a live Mac test
+D2	none	process: which parts of upstream PR #333 to take
+D3	open	per-website language memory: Mac app-level (off by default since D15)
+D4	none	rejected
+D7	none	typing log, a debug tool
+D11	none	website, open-source release, window size
+D12	none	typing log opt-in and the About window: settings UI, no typing behavior
+D15	open	per-site memory off by default, (?) help on every option: app settings defaults
+D16	none	auto update (Sparkle): checked by hand on each release
+D21	open	pause auto switch 5 s after a manual switch: app-level timer on each platform (Mac, Windows, Linux, Android)
+D24	test	Tools/autoswitch/check.sh::driver/bench ; iOS/Tests/KeyboardPerformanceTests.swift::func test
+D25	test	Tools/autoswitch/check.sh::touch/touchsim ; iOS/Tests/KeyboardPerformanceTests.swift::testFatFingerPicksLikelyLetterAtBorder
+D26	test	Tools/autoswitch/check.sh::touch/typoeval ; iOS/Tests/KeyboardPerformanceTests.swift::testAutoCorrectAtSpaceAndBackspaceUndo
+D29	none	process: tuning set vs locked test set
+D31	none	website and brand
+D32	test	Tools/autoswitch/check.sh::driver/undo_test ; Windows/Tests/cases.tsv::undo_then_continue_D32
+D36	test	Windows/Tests/cases.tsv::undo_backspace
+D37	none	tried, not shipped
+D38	test	Linux/Tests/cases-linux.tsv::
+D43	test	Android/Tests/livetest.py::Windows", "Tests", "cases.tsv
+D44	test	Windows/Tests/cases.tsv::undo_same_word_D32
+D45	test	Linux/Tests/livetest.py::cases
+D46	none	decided not to build
+D54	open	Linux pre-edit in apps that never report the surrounding text: needs a live Linux test
+D55	none	packaging (Arch Linux)
+D59	test	iOS/Tests/KeyboardSystemParityTests.swift::testColonAndSemicolonStay

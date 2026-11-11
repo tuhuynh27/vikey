@@ -4,44 +4,44 @@
 <title>Vikey</title>
 <link>https://vikey.app</link>
 <item>
-<title>Vikey 1.0.26</title>
-<pubDate>Fri, 30 Oct 2026 00:56:26 +0000</pubDate>
-<sparkle:version>28</sparkle:version>
-<sparkle:shortVersionString>1.0.26</sparkle:shortVersionString>
+<title>Vikey 1.0.32</title>
+<pubDate>Sun, 08 Nov 2026 06:30:37 +0000</pubDate>
+<sparkle:version>34</sparkle:version>
+<sparkle:shortVersionString>1.0.32</sparkle:shortVersionString>
 <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
 <description><![CDATA[<ul>
-<li>Windows và Linux có đủ tính năng như bản Mac: bảng emoji (tìm bằng tiếng Việt, tiếng Anh hoặc Telex), hướng dẫn khi mở lần đầu, âm báo chuyển mới, cửa sổ Ghi nhận.</li>
-<li>Windows và Linux gõ giống bản Mac: gõ tiếp sau khi Xoá hoàn tác ("vaay" → Xoá → "j" ra "vậy"), số dính liền chữ ("5trăm"), nhìn cả từ sau ("vào office ít nhất").</li>
-<li>Linux: tự kiểm tra bản mới mỗi ngày và báo cho bạn.</li>
-<li>Android: giống bản iPhone hơn: gợi ý chọn khi nhấc tay, emoji dùng thường xuyên, tìm emoji bằng :D, thay thế văn bản (omw), chọn ngôn ngữ ứng dụng, giao diện tối rõ hơn.</li>
+<li>Mac: "resets" và các dạng từ tiếng Anh khác (số nhiều, quá khứ, -ing) không còn bị đổi thành tiếng Việt ("rêts").</li>
+<li>Mac: khi một từ được trả lại tiếng Anh, giữ đủ chữ bạn gõ (dessert, mousse, currentState, Sapa).</li>
 </ul>]]></description>
-<enclosure url="https://vikey.app/downloads/Vikey-1.0.26.dmg" type="application/octet-stream" sparkle:edSignature="2IBG5J3Mj2A8YeaqaprvojT3OKqTEzFyUcAiSWgPEMnAunTKYR8d58cMg0mMUhaufgniWqALnz4RSXEp/DaODA==" length="4527022"/>
+<enclosure url="https://vikey.app/downloads/Vikey-1.0.32.dmg" type="application/octet-stream" sparkle:edSignature="VsuymWvDDnsGpRO7d1zCHx0m2PyPiNZAbdVwfRXWaEAUrmk0astwDCsbDFtyzKg1anhiAVrVw9FHPkZ7bGIVDw==" length="4862941"/>
 </item>
 <item>
-<title>Vikey 1.0.26 for Windows (x64)</title>
-<pubDate>Fri, 30 Oct 2026 00:59:44 +0000</pubDate>
-<sparkle:version>28</sparkle:version>
-<sparkle:shortVersionString>1.0.26</sparkle:shortVersionString>
+<title>Vikey 1.0.31 for Windows (x64)</title>
+<pubDate>Mon, 02 Nov 2026 01:49:51 +0000</pubDate>
+<sparkle:version>33</sparkle:version>
+<sparkle:shortVersionString>1.0.31</sparkle:shortVersionString>
 <description><![CDATA[<ul>
-<li>Windows và Linux có đủ tính năng như bản Mac: bảng emoji (tìm bằng tiếng Việt, tiếng Anh hoặc Telex), hướng dẫn khi mở lần đầu, âm báo chuyển mới, cửa sổ Ghi nhận.</li>
-<li>Windows và Linux gõ giống bản Mac: gõ tiếp sau khi Xoá hoàn tác ("vaay" → Xoá → "j" ra "vậy"), số dính liền chữ ("5trăm"), nhìn cả từ sau ("vào office ít nhất").</li>
-<li>Linux: tự kiểm tra bản mới mỗi ngày và báo cho bạn.</li>
-<li>Android: giống bản iPhone hơn: gợi ý chọn khi nhấc tay, emoji dùng thường xuyên, tìm emoji bằng :D, thay thế văn bản (omw), chọn ngôn ngữ ứng dụng, giao diện tối rõ hơn.</li>
+<li>Mac: gõ nhẹ hơn, mỗi phím làm ít việc hơn.</li>
+<li>Mac: cửa sổ chính không còn mở ra với kích thước 0 trên macOS 14 và 15. Bấm ⌘, để mở cài đặt Vikey.</li>
+<li>Windows, Linux: phím số bên phải bàn phím gõ giống hàng số trên. Các phím Vikey không xử lý sẽ kết thúc từ đang gõ. Windows không còn nhả phím Shift đang giữ.</li>
+<li>Linux: gõ nhẹ hơn, nhật ký gõ được ghi theo hẹn giờ thay vì mỗi phím.</li>
+<li>Android: ô mật khẩu gõ đúng phím bạn bấm. Chạm ngay sau khi đổi bàn phím (123, emoji) trúng phím mới.</li>
 </ul>]]></description>
-<enclosure url="https://vikey.app/downloads/Vikey-1.0.26-x64-Setup.exe" sparkle:os="windows" vikey:arch="x64" type="application/octet-stream" sparkle:edSignature="U1hDv5dLCkr8X+bDbWA3YPvKTdGEA/8/yWwDrvR/n/Rn8M2qa0qxF2vYM8l3vCmaIzS61K6Iflvx6k9/GHSJDg==" length="3177642"/>
+<enclosure url="https://vikey.app/downloads/Vikey-1.0.31-x64-Setup.exe" sparkle:os="windows" vikey:arch="x64" type="application/octet-stream" sparkle:edSignature="eRpYGj1Xn/pmfQ/iCCqsF1gCL1+A6JsjC2+FconU+feprYPajDbERkJVsrelTnYn0EPeDoG8JqygzsfpUb5dAg==" length="3183429"/>
 </item>
 <item>
-<title>Vikey 1.0.26 for Windows (arm64)</title>
-<pubDate>Fri, 30 Oct 2026 00:59:44 +0000</pubDate>
-<sparkle:version>28</sparkle:version>
-<sparkle:shortVersionString>1.0.26</sparkle:shortVersionString>
+<title>Vikey 1.0.31 for Windows (arm64)</title>
+<pubDate>Mon, 02 Nov 2026 01:49:51 +0000</pubDate>
+<sparkle:version>33</sparkle:version>
+<sparkle:shortVersionString>1.0.31</sparkle:shortVersionString>
 <description><![CDATA[<ul>
-<li>Windows và Linux có đủ tính năng như bản Mac: bảng emoji (tìm bằng tiếng Việt, tiếng Anh hoặc Telex), hướng dẫn khi mở lần đầu, âm báo chuyển mới, cửa sổ Ghi nhận.</li>
-<li>Windows và Linux gõ giống bản Mac: gõ tiếp sau khi Xoá hoàn tác ("vaay" → Xoá → "j" ra "vậy"), số dính liền chữ ("5trăm"), nhìn cả từ sau ("vào office ít nhất").</li>
-<li>Linux: tự kiểm tra bản mới mỗi ngày và báo cho bạn.</li>
-<li>Android: giống bản iPhone hơn: gợi ý chọn khi nhấc tay, emoji dùng thường xuyên, tìm emoji bằng :D, thay thế văn bản (omw), chọn ngôn ngữ ứng dụng, giao diện tối rõ hơn.</li>
+<li>Mac: gõ nhẹ hơn, mỗi phím làm ít việc hơn.</li>
+<li>Mac: cửa sổ chính không còn mở ra với kích thước 0 trên macOS 14 và 15. Bấm ⌘, để mở cài đặt Vikey.</li>
+<li>Windows, Linux: phím số bên phải bàn phím gõ giống hàng số trên. Các phím Vikey không xử lý sẽ kết thúc từ đang gõ. Windows không còn nhả phím Shift đang giữ.</li>
+<li>Linux: gõ nhẹ hơn, nhật ký gõ được ghi theo hẹn giờ thay vì mỗi phím.</li>
+<li>Android: ô mật khẩu gõ đúng phím bạn bấm. Chạm ngay sau khi đổi bàn phím (123, emoji) trúng phím mới.</li>
 </ul>]]></description>
-<enclosure url="https://vikey.app/downloads/Vikey-1.0.26-arm64-Setup.exe" sparkle:os="windows" vikey:arch="arm64" type="application/octet-stream" sparkle:edSignature="HaKeIz4w0UfNjzLEYt3hEG82NCThFxRvaeZNWVNLf+Q8R0yxP5Ul5VfRTrUvU4y2d0jrGnVs9QFJWEDUxDc5Dg==" length="3160626"/>
+<enclosure url="https://vikey.app/downloads/Vikey-1.0.31-arm64-Setup.exe" sparkle:os="windows" vikey:arch="arm64" type="application/octet-stream" sparkle:edSignature="SOE50UOdPJ2h65jYFk2wjnR42m89YnI+EHZSWKubeFeTvIoQL1BGWOJ9VPf633e9Nu1b5iGG5OSD3WNOejQSAg==" length="3166531"/>
 </item>
 </channel>
 </rss>

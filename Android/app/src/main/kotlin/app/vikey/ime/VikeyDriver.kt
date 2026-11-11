@@ -22,6 +22,7 @@ object VikeyDriver {
     @JvmStatic external fun language(h: Long): Int
     @JvmStatic external fun setLanguage(h: Long, l: Int)
     @JvmStatic external fun configure(h: Long, autoSwitch: Boolean, pause: Double, spelling: Boolean, restore: Boolean, modern: Boolean)
+    @JvmStatic external fun setTelexStyle(style: Int)
     @JvmStatic external fun typeChar(h: Long, c: Char, now: Double): String
     @JvmStatic external fun backspace(h: Long, now: Double): String
     @JvmStatic external fun manualSwitch(h: Long, now: Double)
@@ -44,13 +45,14 @@ class Driver {
     var autoSwitch = true
     var pauseAfterManual = 5.0
     var modernOrthography = true
+    var telexStyle = 0   // D56: 0 Telex, 1 Simple Telex 1, 2 Simple Telex 2
     var spelling = true
     var restoreIfInvalid = true
     var language: Int
         get() = VikeyDriver.language(h)
         set(v) = VikeyDriver.setLanguage(h, v)
 
-    fun applySettings() = VikeyDriver.configure(h, autoSwitch, pauseAfterManual, spelling, restoreIfInvalid, modernOrthography)
+    fun applySettings() { VikeyDriver.configure(h, autoSwitch, pauseAfterManual, spelling, restoreIfInvalid, modernOrthography); VikeyDriver.setTelexStyle(telexStyle) }
     private fun edit(s: String) = Edit(s[0].code, s.substring(2), s[1].code == 1)
     /** One character typed: letters, digits, punctuation, " " or "\n". Anything the engine doesn't know passes through. */
     fun typeCharacter(s: String, now: Double): Edit {

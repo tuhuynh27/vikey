@@ -3,6 +3,7 @@
 //  The bridge between the SwiftUI app and the keyboard core (event tap + Telex engine).
 //
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -30,6 +31,12 @@ extern NSNotificationName const VikeyLanguageDidChangeNotification;
 /// Re-reads settings from UserDefaults into the engine after the UI changed one.
 + (void)reloadSettings;
 
+/// Auto switch for the app in front: the "AutoSwitchByTyping" setting unless this app has its own choice.
++ (BOOL)autoSwitchEnabledForFrontApp;
++ (void)setAutoSwitchForFrontApp:(BOOL)on;
++ (BOOL)frontAppIsExcluded;
++ (NSString *)frontAppName;
+
 /// Asks macOS for permission to read the tab address of every running browser (per-site memory).
 /// Calls back on the main thread with YES when the user has refused it for at least one browser.
 + (void)requestBrowserAccess:(void (^)(BOOL denied))done;
@@ -42,6 +49,9 @@ extern NSNotificationName const VikeyLanguageDidChangeNotification;
 + (void)setEmojiHotkeyHandler:(void (^)(void))handler;
 /// While open, keys reach the picker untouched (no Vietnamese typing).
 + (void)setEmojiPickerOpen:(BOOL)open;
+/// The key code a hotkey recorded from this key press is stored as: on Dvorak, AZERTY... the key that types
+/// "z" is recorded as Z, the same way the event tap reads it.
++ (int)hotkeyKeyCodeForEvent:(NSEvent *)event;
 /// Forget the word being typed (the cursor moved to another field without a click).
 + (void)resetTyping;
 /// Types text into the focused app.
@@ -51,6 +61,8 @@ extern NSNotificationName const VikeyLanguageDidChangeNotification;
 + (NSString *)typingLogPath;
 + (NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *)typingLogStats;
 + (void)flushTypingLog;
+/// Flushes, then calls done on the main thread once the log file has everything (and any clear has run).
++ (void)flushTypingLogThen:(void (^)(void))done;
 + (void)clearTypingLog;
 
 @end

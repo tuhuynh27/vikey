@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class HostedWindow<Content: View> {
     private var window: NSWindow?
+    private var host: NSHostingController<AnyView>?
     private let title: String
     private let size: NSSize?
     private let resizable: Bool
@@ -21,8 +22,9 @@ final class HostedWindow<Content: View> {
 
     func show() {
         if window == nil {
-            let host = NSHostingController(rootView: content().environmentObject(AppState.shared))
+            let host = NSHostingController(rootView: AnyView(content().environmentObject(AppState.shared)))
             host.sizingOptions = []   // size is set once below; live content-size tracking loops in AppKit's constraint pass
+            self.host = host
             let w = NSWindow(contentViewController: host)
             w.title = title
             w.styleMask = resizable ? [.titled, .closable, .miniaturizable, .resizable] : [.titled, .closable, .miniaturizable]
@@ -31,28 +33,56 @@ final class HostedWindow<Content: View> {
                 w.titleVisibility = .hidden
                 w.titlebarAppearsTransparent = true
             }
-            host.view.layoutSubtreeIfNeeded()   // the real SwiftUI size before centering (Tony: open in the middle of the screen)
-            w.setContentSize(size ?? host.view.fittingSize)
+            // Unbounded proposal measures natural content width; works because current content-sized views
+            // (MainView at 460pt, AcknowledgementsView at 520pt) declare explicit fixed frame widths.
+            let measured = host.sizeThatFits(in: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+            let targetWidth = size?.width ?? (measured.width > 0 ? measured.width : 460)
+            let fit = host.sizeThatFits(in: NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude))
+            let initialSize = size ?? NSSize(width: targetWidth, height: fit.height > 0 ? fit.height : 460)
+            w.setContentSize(initialSize)
             window = w
             Self.centerExactly(w)
         }
         let first = window?.isVisible == false && !centered
         WindowFocus.bringForward()
         window?.makeKeyAndOrderFront(nil)
-        if first, let w = window {
+        if first, let w = window, let host = self.host {
             // SwiftUI settles the content size after the window is on screen; measure and center again then
             // (Tony: the main window still opened off-center)
             centered = true
             DispatchQueue.main.async { [size] in
-                if size == nil, let v = w.contentViewController?.view {
-                    v.layoutSubtreeIfNeeded()
-                    if v.fittingSize.height > 0, abs(v.fittingSize.height - w.contentLayoutRect.height) > 1 { w.setContentSize(v.fittingSize) }
+                if size == nil {
+                    let measured = host.sizeThatFits(in: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+                    let targetWidth = measured.width > 0 ? measured.width : 460
+                    let fit = host.sizeThatFits(in: NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude))
+                    let current = w.contentLayoutRect.size
+                    if fit.width > 0, fit.height > 0, (abs(fit.width - current.width) > 1 || abs(fit.height - current.height) > 1) {
+                        w.setContentSize(fit)
+                    }
                 }
                 w.centerExactly()
             }
         }
     }
     private var centered = false
+
+    /// After the content changed height (a card folded, tab switched): resize, keeping the top edge in place.
+    func fitToContent(height: CGFloat? = nil) {
+        guard let w = window, let host = self.host else { return }
+        let measured = host.sizeThatFits(in: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        let targetWidth = size?.width ?? (measured.width > 0 ? measured.width : (w.contentLayoutRect.width > 0 ? w.contentLayoutRect.width : 460))
+        let h = height ?? host.sizeThatFits(in: NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)).height
+        guard h > 0, abs(h - w.contentLayoutRect.height) > 1 else { return }
+        let content = NSRect(x: 0, y: 0, width: targetWidth, height: h)
+        var frame = w.frame
+        var newSize = w.frameRect(forContentRect: content).size
+        let v = (w.screen ?? NSScreen.main)?.visibleFrame
+        if let v { newSize.height = min(newSize.height, v.height) }   // no taller than the screen: the content scrolls (#51)
+        frame.origin.y += frame.height - newSize.height
+        if let v { frame.origin.y = max(frame.origin.y, v.minY) }   // grown past the bottom of the screen: move up
+        frame.size = newSize
+        w.setFrame(frame, display: true, animate: true)
+    }
 
     func close() { window?.close() }
 
@@ -77,7 +107,8 @@ extension NSWindow {
         let mouse = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
         guard let screen = mouse ?? screen ?? NSScreen.main else { center(); return }
         let v = screen.visibleFrame, f = frame
-        setFrameOrigin(NSPoint(x: (v.midX - f.width / 2).rounded(), y: (v.midY - f.height / 2).rounded()))
+        let h = min(f.height, v.height)   // no taller than the screen (#51)
+        setFrame(NSRect(x: (v.midX - f.width / 2).rounded(), y: (v.midY - h / 2).rounded(), width: f.width, height: h), display: false)
     }
 }
 

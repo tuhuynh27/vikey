@@ -19,6 +19,8 @@ static const int EMPTY_HOTKEY = 0xFE0000FE;
 static Output _out;
 static vKeyHookState* pData = nullptr;
 static unsigned _flag = 0, _lastFlag = 0;
+static bool _modifierChordUsed = false;   // the modifiers held went with a click or another key: no modifier-only hotkey until all are released
+static bool _hotkeyHeld = false;   // the switch hotkey's key is down (with or without its modifiers): IBus has no repeat flag, so presses before its release are auto-repeat; a click or focus_out clears it (a missed release)
 static Uint16 _keycode = 0;
 static std::function<void(int)> _observer;
 static std::string _frontApp = "UnknownApp";
@@ -26,6 +28,9 @@ static int _languageTemp = 0;
 static std::vector<Byte> savedSmartSwitchKeyData;
 
 static Uint32 _enKeys[MAX_BUFF]; static int _enCount = 0; static bool _enValid = true, _enAfterShortcut = false, _enAfterDouble = false;
+// ← then → back to the same spot inside a word: the English word is still the one being typed (D51)
+static Uint32 _enNavKeys[MAX_BUFF]; static int _enNavCount = 0, _enNavPrevN = 0, _enNavOffset = 0;
+static bool _enNavValid = true, _enNavAfterDouble = false;
 static Uint32 _enPrevKeys[2][MAX_BUFF]; static int _enPrevCounts[2]; static int _enPrevN = 0;
 static bool _enPrevRestored = false;   // _enPrevKeys[0] was put back to English by auto switch (D35)
 // keys: the original word (English mode can go on typing it after an undo, D32)
@@ -35,7 +40,7 @@ static AutoFixUndo _autoFixUndo = {};
 static Uint32 _undoneKeys[MAX_BUFF]; static int _undoneCount = 0;
 static int vEmojiHotkey = 0;   // the emoji picker's hotkey (0 = off)
 static void StartEnglishWord(bool valid) { _enCount = 0; _enValid = valid; _enAfterShortcut = false; }
-static void ResetEnglishWord(bool valid) { _enAfterDouble = false; _undoneCount = 0; StartEnglishWord(valid); _enPrevN = 0; vAutoSwitchForget(); }
+static void ResetEnglishWord(bool valid) { _enAfterDouble = false; _undoneCount = 0; StartEnglishWord(valid); _enPrevN = 0; _enNavOffset = 0; vAutoSwitchForget(); }   // also the D51 round trip: after a click or a switch → must not bring the old word back
 
 // ---- Typing log --------------------------------------------------------------------------------
 int vTypingLogKeys = 1, vTypingLogEnabled = 0;
@@ -49,6 +54,7 @@ static std::string TLTime() { struct timeval tv; gettimeofday(&tv, nullptr); str
 static std::string TLToday() { time_t n = time(nullptr); struct tm t; localtime_r(&n, &t); char b[16]; strftime(b, sizeof b, "%Y-%m-%d", &t); return b; }
 static void TLCount(const char* name) { if (!vTypingLogEnabled) return; std::string key = "TLStat_" + TLToday() + "_" + name; prefs::setInt(key.c_str(), prefs::getInt(key.c_str(), 0) + 1); }
 void flushTypingLog() {
+    prefs::flushStats();
     std::string chunk; { std::lock_guard<std::mutex> g(_tlMutex); chunk.swap(_tlPending); }
     if (chunk.empty()) return;
     std::string path = typingLogPath(); mkdir(prefs::dataDir().c_str(), 0700);
@@ -65,8 +71,9 @@ static bool TLKeysAllowed() {
 static void TLWrite(std::string fields) {
     if (!vTypingLogEnabled) return;
     std::string line = "{" + fields + ",\"t\":\"" + TLTime() + "\",\"app\":\"" + jsonEscape(_tlApp) + "\"}\n";
-    bool flush; { std::lock_guard<std::mutex> g(_tlMutex); _tlPending += line; flush = _tlPending.size() > 8192; }
-    if (flush) flushTypingLog();
+    // no file write here (this runs in the IBus key callback): the 10 s flush timer writes it, and a few seconds of
+    // typing is a few KB
+    std::lock_guard<std::mutex> g(_tlMutex); _tlPending += line;
 }
 static const char* TLLang(int lang) { return lang ? "vi" : "en"; }
 static void TLEndWord(const std::string& reason) {
@@ -118,6 +125,7 @@ static void ApplySmartSwitch() {
 void focusChanged(const std::string& app) {
     if (!app.empty()) _frontApp = app;
     ResetEnglishWord(true); _autoFixUndo.active = false;
+    _flag &= F_CAPS; _lastFlag = 0; _modifierChordUsed = false;   // after Alt+Tab the modifier releases went to the other app
     TLEndWord("app"); _tlApp = _frontApp;
     if (vUseSmartSwitchKey) ApplySmartSwitch();
     startNewSession();
@@ -143,6 +151,10 @@ void command(const std::string& line) {
         int lang = line.find(" vi") != std::string::npos ? 1 : 0; bool user = line.find("user") != std::string::npos;
         if (user) setLanguageByUser(lang); else setLanguageQuiet(lang);
         if (vTypingLogEnabled) TLWrite(std::string("\"e\":\"cmd\",\"line\":\"") + jsonEscape(line) + "\",\"as\":" + std::to_string(vAutoSwitchByTyping) + ",\"pref\":" + std::to_string(prefs::getInt("AutoSwitchByTyping", 1)) + ",\"paused\":" + (AutoSwitchPaused() ? "true" : "false") + ",\"lang\":" + std::to_string(vLanguage));
+    } else if (line == "clear-log") {
+        // the settings app's Clear: the engine holds the counters (and the log lines not written yet) in memory, so
+        // it clears them itself, or its next flush would write them back over the cleared files
+        _tlWordLen = 0; clearTypingLog(); prefs::clearStats();
     }
 }
 void reloadSettings() {
@@ -153,12 +165,14 @@ void reloadSettings() {
     vCheckSpelling = prefs::getInt("Spelling", 1); vSetCheckSpelling();
     vRestoreIfWrongSpelling = prefs::getInt("RestoreIfInvalidWord", 1);
     vUseModernOrthography = prefs::getInt("ModernOrthography", 1);
+    vTelexStyle = prefs::getInt("TelexStyle", 0);   // D56: Telex / Simple Telex 1 / 2
     vUseSmartSwitchKey = prefs::getInt("UseSmartSwitchKey", 1);
     vAutoSwitchByTyping = AutoSwitchPaused() ? 0 : prefs::getInt("AutoSwitchByTyping", 1);
     vTypingLogKeys = prefs::getInt("TypingLogKeys", 1);
     vTypingLogEnabled = prefs::getInt("TypingLogEnabled", 0);
     int hotkey = prefs::getInt("SwitchKeyStatus", 0);
     vSwitchKeyStatus = hotkey ? hotkey : 0x7A000206;   // default Alt+Z
+    _hotkeyHeld = false;   // the old hotkey's release won't match the new one
     vEmojiHotkey = prefs::getInt("EmojiPicker", 0) ? prefs::getInt("EmojiHotkey", 0) : 0;
     if (_observer) _observer(vLanguage);
 }
@@ -169,7 +183,7 @@ static void sendEngineChars() {
     for (int k = pData->newCharCount - 1; k >= 0 && (int)text.size() < MAX_BUFF; k--) { Uint32 c = pData->charData[k]; text += (c & CHAR_CODE_MASK) ? (char32_t)(c & 0xFFFF) : (char32_t)keyCodeToCharacter(c); }
     bool sendControlKey = false;
     if (pData->code == vRestore || pData->code == vRestoreAndStartNewSession) {
-        Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & F_CAPS) || (_flag & F_SHIFT) ? CAPS_MASK : 0));
+        Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & F_SHIFT) || ((_flag & F_CAPS) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only ("NAS," gave "NAS<")
         if (ch != 0) text += (char32_t)ch; else sendControlKey = true;
     }
     if (pData->code == vRestoreAndStartNewSession) startNewSession();
@@ -182,12 +196,14 @@ static void SendEngineOutput() {
 }
 
 // ---- Hotkey / language -------------------------------------------------------------------------------
-static bool checkHotKey(int hotKeyData, bool checkKeyCode = true) {
+/// flags: for a key hotkey (Alt+Z) the key press's own, so Alt held and Z again switches again; for modifiers
+/// alone (Ctrl+Shift) the most modifiers held before the release
+static bool checkHotKey(int hotKeyData, unsigned flags, bool checkKeyCode = true) {
     if ((hotKeyData & (~0x8000)) == EMPTY_HOTKEY) return false;
-    if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(_lastFlag & F_CONTROL)) return false;
-    if (HAS_OPTION(hotKeyData) ^ GET_BOOL(_lastFlag & F_ALT)) return false;
-    if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(_lastFlag & F_WIN)) return false;
-    if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(_lastFlag & F_SHIFT)) return false;
+    if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(flags & F_CONTROL)) return false;
+    if (HAS_OPTION(hotKeyData) ^ GET_BOOL(flags & F_ALT)) return false;
+    if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(flags & F_WIN)) return false;
+    if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(flags & F_SHIFT)) return false;
     if (checkKeyCode && GET_SWITCH_KEY(hotKeyData) != _keycode) return false;
     return true;
 }
@@ -211,7 +227,7 @@ static void RememberAutoFix(int correctedCount) {
     _autoFixUndo.active = false;
     if (vAutoSwitchUndoCount <= 0 || correctedCount <= 0) return;
     for (int x = 0; x < vAutoSwitchUndoCount; x++) if ((vAutoSwitchUndoData[x] & 0xFFFF) == KEY_SPACE && !(vAutoSwitchUndoData[x] & CHAR_CODE_MASK)) return;
-    Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & F_CAPS) || (_flag & F_SHIFT) ? CAPS_MASK : 0));
+    Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & F_SHIFT) || ((_flag & F_CAPS) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only (Space + CAPS_MASK is 0)
     if (breakChar == 0) return;
     int n = 0; for (int x = 0; x < vAutoSwitchUndoCount && n < MAX_BUFF; x++) { char32_t c = CharacterOf(vAutoSwitchUndoData[x]); if (c == 0) return; _autoFixUndo.text[n++] = c; }
     _autoFixUndo.textCount = n;
@@ -252,6 +268,23 @@ static void ApplyAutoSwitchToEnglish(int correctedCount, bool atWordBreak) {
 static bool HandleEnglishKeyForAutoSwitch() {
     if (OTHER_CONTROL_KEY) { ResetEnglishWord(true); _enAfterShortcut = (_flag & (F_CONTROL | F_WIN)) != 0; return false; }
     bool shift = _flag & F_SHIFT; bool caps = shift || (_flag & F_CAPS);
+    if ((_keycode == KEY_LEFT || _keycode == KEY_RIGHT) && !shift) {   // D51: ← → round trip inside a word
+        if (_keycode == KEY_LEFT && _enNavOffset == 0 && (_enCount > 0 || _enPrevN > 0)) {
+            memcpy(_enNavKeys, _enKeys, _enCount * sizeof(Uint32)); _enNavCount = _enCount; _enNavValid = _enValid;
+            _enNavAfterDouble = _enAfterDouble; _enNavPrevN = _enPrevN; _enNavOffset = -1;
+            StartEnglishWord(false); _enAfterDouble = false; _enPrevN = 0;
+            return false;
+        }
+        if (_enNavOffset < 0) {
+            if (_keycode == KEY_LEFT) _enNavOffset--;
+            else if (++_enNavOffset == 0) {   // back at the word's end: it's that word again
+                memcpy(_enKeys, _enNavKeys, _enNavCount * sizeof(Uint32)); _enCount = _enNavCount; _enValid = _enNavValid;
+                _enAfterDouble = _enNavAfterDouble; _enPrevN = _enNavPrevN;
+            }
+            return false;
+        }
+    }
+    _enNavOffset = 0;
     if (IsLetterKey(_keycode)) { if (_enCount < MAX_BUFF - 2) _enKeys[_enCount++] = _keycode | (caps ? CAPS_MASK : 0); else _enValid = false; _enAfterShortcut = false; return false; }
     if (_keycode == KEY_DELETE) { if (_enCount == 0) { _enPrevN = 0; _enAfterDouble = false; } if (_enCount > 0) _enCount--; else if (!_enAfterShortcut) _enValid = false; return false; }
     if (IS_NUMBER_KEY(_keycode) && !shift) { _enValid = _enCount == 0 && _enValid; _enCount = 0; _enPrevN = 0; _enAfterDouble = false; return false; }   // D33: digits after a space start a word of their own ("5trawm" -> "5trăm"); glued to letters, a code
@@ -279,24 +312,36 @@ bool modifier(unsigned bit, bool down) {
     checkPauseExpired();
     if (bit == F_CAPS) { if (down) _flag |= F_CAPS; else _flag &= ~F_CAPS; return false; }
     if (down) _flag |= bit; else _flag &= ~bit;
-    if (_lastFlag == 0 || _lastFlag < _flag) _lastFlag = _flag;
+    if (_modifierChordUsed) {   // Ctrl+Alt+Shift+F5, then letting go of Alt and Shift one by one, must not switch
+        _lastFlag = 0;
+        if (!(_flag & (F_SHIFT | F_CONTROL | F_ALT | F_WIN))) _modifierChordUsed = false;
+    } else if (_lastFlag == 0 || _lastFlag < _flag) _lastFlag = _flag;
     else if (_lastFlag > _flag) {
         // only a hotkey without a key: a key hotkey fired on its key-down, and _keycode is just the last key typed
-        bool hit = GET_SWITCH_KEY(vSwitchKeyStatus) == 0xFE && checkHotKey(vSwitchKeyStatus, false);
+        bool hit = GET_SWITCH_KEY(vSwitchKeyStatus) == 0xFE && checkHotKey(vSwitchKeyStatus, _lastFlag, false);
         _lastFlag = 0;
         if (hit) { toggleLanguage("hotkey"); return true; }
     }
     return false;
 }
+static void cancelModifierHotkey() { _lastFlag = 0; if (_flag & (F_SHIFT | F_CONTROL | F_ALT | F_WIN)) _modifierChordUsed = true; }
+void otherKeyDown() { cancelModifierHotkey(); _hotkeyHeld = false; }   // Ctrl+Shift+F5: releasing Ctrl+Shift afterwards isn't the hotkey
+void keyUp(Uint16 key) { if (key == GET_SWITCH_KEY(vSwitchKeyStatus)) _hotkeyHeld = false; }
 bool keyDown(Uint16 key, bool shift, unsigned flags) {
     checkPauseExpired();
     _flag = (flags & ~(unsigned)F_SHIFT) | (shift ? F_SHIFT : 0);
     _keycode = key;
     // emoji picker hotkey: a key with exactly these modifiers
     if (vEmojiHotkey && GET_SWITCH_KEY(vEmojiHotkey) == _keycode && HAS_CONTROL(vEmojiHotkey) == GET_BOOL(_flag & F_CONTROL) && HAS_OPTION(vEmojiHotkey) == GET_BOOL(_flag & F_ALT) &&
-        HAS_COMMAND(vEmojiHotkey) == GET_BOOL(_flag & F_WIN) && HAS_SHIFT(vEmojiHotkey) == GET_BOOL(_flag & F_SHIFT)) { _lastFlag = 0; if (_out.openEmoji) _out.openEmoji(); return true; }
-    if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode) _lastFlag = 0;
-    else if (checkHotKey(vSwitchKeyStatus, true)) { toggleLanguage("hotkey"); _lastFlag = 0; return true; }
+        HAS_COMMAND(vEmojiHotkey) == GET_BOOL(_flag & F_WIN) && HAS_SHIFT(vEmojiHotkey) == GET_BOOL(_flag & F_SHIFT)) { cancelModifierHotkey(); if (_out.openEmoji) _out.openEmoji(); return true; }
+    if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode) otherKeyDown();
+    else {
+        bool repeat = _hotkeyHeld; _hotkeyHeld = true;   // any press, matched or not: Alt+Shift+Z, then Shift up, mustn't switch on a repeat (the Mac's autorepeat flag)
+        if (checkHotKey(vSwitchKeyStatus, flags)) {   // flags, not _flag: Caps Lock's uppercase keysym isn't Shift
+            if (repeat) return true;   // holding Alt+Z: switch once per press, swallow the auto-repeat
+            toggleLanguage("hotkey"); _lastFlag = 0; return true;
+        }
+    }
     if (_keycode == KEY_DELETE && _autoFixUndo.active && !(OTHER_CONTROL_KEY)) { if (UndoAutoFixWithBackspace()) return true; }
     _autoFixUndo.active = false;
     TLNoteKey(_keycode, _flag);
@@ -316,7 +361,7 @@ bool keyDown(Uint16 key, bool shift, unsigned flags) {
 }
 void resetTyping() { ResetEnglishWord(true); _autoFixUndo.active = false; startNewSession(); }
 void insertText(const std::u32string& text) { resetTyping(); if (!text.empty()) _out.text(text); }
-void click() { _autoFixUndo.active = false; _tlSinceAuto = false; TLEndWord("click"); if (vTypingLogEnabled) TLWrite("\"e\":\"reset\""); if (vLanguage == 0) ResetEnglishWord(true); else vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0); }
+void click() { cancelModifierHotkey(); _hotkeyHeld = false; _autoFixUndo.active = false; _tlSinceAuto = false; TLEndWord("click"); if (vTypingLogEnabled) TLWrite("\"e\":\"reset\""); if (vLanguage == 0) ResetEnglishWord(true); else vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0); }
 void init(Output out) {
     _out = out;
     pData = (vKeyHookState*)vKeyInit();

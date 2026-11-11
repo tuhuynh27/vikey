@@ -5,6 +5,83 @@ Each entry records what was asked, what was decided, and its status. Newest firs
 
 Status values: **Shipped** (in a build Tony has), **Agreed** (decided, not built yet), **Rejected**.
 
+## 60. English word forms the list is missing: "resets" stays "resets"
+
+**Status:** Built 2026-11-08, not in a release yet (Tony's report).
+
+**Problem.** On the Mac, "this get resets " gave "this get rêts ". The English list comes from subtitles: it has "reset" but not "resets". So in English mode the keys weren't English, and their Telex replay "rêts" has the same lookup key as the real word "rết" (the trailing s reads as the sắc tone), so the word was converted. In Vietnamese mode the doubled s gave "reets" (D19: the dictionary decides at the end, and "resets" wasn't in it).
+
+**Fix.** Real English word forms come from SCOWL, the database behind the standard en_US spell-check dictionaries: its en_US Hunspell dictionary, with every word expanded by its own affix rules (plurals, past tense, -ing, irregular forms). `Tools/autoswitch/build_forms.py` keeps the forms of entries whose base word is in our list and that the list is missing (18,197, ~180 KB): "resets", "quests", "resizes". `Engine/EnglishFormsData.h` holds them; the engine counts them as English, rarer than every listed word, and never when the letters are a Vietnamese word ("phis", Greek letters, is phí). Words already in the list keep their own score.
+
+Tony rejected a first version that guessed from suffixes (any listed word + -s, -es, -ed, -ing): English doesn't work that way. Also tried: every word SCOWL knows (48,102, not only forms of listed words). Worse: "nos", "cos", "sex" stopped converting to nó, có, sẽ; manual switches 58 → 60 (chat).
+
+**Result.** Rules D60 (8 cases), reported bug R21. All other rules, reported bugs and the Telex lock unchanged. Golden: "reie" → "resize" (chat, both sets), "quets" → "quests" (synthetic). Manual switches 58 → 57 (chat), 71 → 70 (chat_typos), 111 → 110 (synthetic); wrong words unchanged.
+
+**Every decision has a test.** `rules/decisions.py` (in check.sh) fails when a decision has neither cases tagged with it nor a row in `rules/decisions.tsv` naming its tests, or saying why it has none. Open (behavior, no automated test yet): D1, D3, D15, D21, D54, all app-level (they need a live test on that platform).
+
+## 59. ":" and ";" after a space stay where they are (phone keyboards)
+
+**Status:** Shipped 2026-11-02 (Tony changed his mind on the earlier behavior).
+
+**Problem.** On iPhone and Android, punctuation typed right after a space went back onto the word, like the system keyboard: "Hello : " gave "Hello: ", and the emoticon "haha :)" gave "haha:)".
+
+**Fix.** Only . , ? ! and closing ) " still snap back ("this ." → "this."). : and ; stay as typed, so emoticons (:) :D ;)) and "Hello : " keep their space. Desktop typing never had this behavior.
+
+**Result.** iOS test `testColonAndSemicolonStay` ("haha :) ", "hello : ", "ok ;) "); `testPeriodSnapsBack` still passes.
+
+## 58. "docs" in Vietnamese mode is English
+
+**Status:** Shipped 2026-11-02 (bug from an X user, via Tony).
+
+**Problem.** In Vietnamese mode "docs" gave "dóc": the subtitle corpus has "docs" at English score -1, below "dóc" (1).
+
+**Fix.** "docs" gets English score 20 (build_dict.py `EN_OVERRIDE`, patched in the built data like D48). 10 was not enough. "nói dóc" (to lie) still converts: the word before decides it.
+
+**Result.** Manual switches 64 → 61 (chat), 77 → 74 (chat_typos), 123 → 120 (synthetic); wrong words unchanged; three golden lines now keep "docs". Rules D58 (3 cases), reported bug R20.
+
+## 57. Backspace over punctuation lost the word before it
+
+**Status:** Agreed (2026-11-01): a bug fix, in PR #33.
+
+**Problem.** Typing a word, a punctuation mark, Backspace, then more letters and a space could erase the first word: `vieejt.` ⌫ `nam ` left only `nam`. Backspace brought back the word's letters but not its keys, so the restore at the space rebuilt the word from the new keys alone.
+
+**Fix.** When Backspace brings a word back, its keys are rebuilt from the letters (as after D50). A word whose keys can't all be rebuilt (a very long word, or a character no key makes) is never restored. Cases tagged D57 in `rules.tsv`.
+
+---
+
+## 56. Telex style: Telex, Simple Telex 1, Simple Telex 2
+
+**Status:** Agreed (2026-10-31), asked in #28.
+
+**Problem.** In Telex, a lone `[` types ơ and `]` types ư, so typing brackets takes two presses. OpenKey had two Simple Telex styles for this, which Vikey removed when it forked.
+
+**Decision.** A "Kiểu gõ" (typing style) setting on every platform, Telex by default:
+- **Telex:** as before. `[` gives ơ, `]` gives ư, a lone `w` gives ư.
+- **Simple Telex 1:** `[` and `]` are brackets and end the word like `.` and `,` (spell check and auto switch run, as at any punctuation). A `w` that joins no vowel stays `w` (`tw` stays `tw`).
+- **Simple Telex 2:** `[` and `]` are brackets and end the word, as in Simple Telex 1. A lone `w` still gives ư.
+
+`uw`, `ow`, `aw` give ư, ơ, ă in all three. Users coming from OpenKey keep their Simple Telex choice. Test cases: `Tools/autoswitch/rules/telex_simple1.tsv` and `telex_simple2.tsv`.
+
+---
+
+## 55. Linux: an Arch Linux package
+
+**Status:** Agreed (2026-10-31), in PR #27.
+
+**Decision.** Vikey ships an Arch Linux package (`.pkg.tar.zst`, x64 and ARM64) next to the .deb and .rpm. CI repacks it from the .deb, so the files are the same. The download page lists Arch as supported and shows an Arch button on the Linux card.
+
+---
+
+## 54. Linux: pre-edit in apps that never report the text around the cursor
+
+**Status:** Fix for #24 (2026-10-31).
+
+**Problem.** On Wayland the desktop (GNOME Shell, KWin) relays IBus for every app and always claims it can delete text around the cursor. Terminals (GNOME Terminal, Ghostty, kitty) and Zed ignore that delete, so `gox` showed `goõ`; GNOME Terminal on Ubuntu 24.04 crashed on it. Synthetic Backspace keys are dropped on Wayland.
+
+**Decision.** Apps that send their surrounding text after they get the focus keep the direct mode (text typed straight in, as on macOS and Windows). Apps that never do get pre-edit: the current word and the two before it (what auto switch may still rewrite) are shown underlined until they are final. Everything is committed before any key that goes to the app (Enter, Tab, arrows, shortcuts).
+
+---
+
 ## How behavior is locked down
 
 Every engine rule decided here has test cases in `Tools/autoswitch/rules/rules.tsv`, tagged with its decision (D5.2, D8.1, ...). Run before and after any rule change:
@@ -22,6 +99,77 @@ It checks:
 If every listed change is intended, accept them with `Tools/autoswitch/check.sh update`. Add a case for the new decision to `rules.tsv`. GitHub Actions runs the same check on every push.
 
 ---
+
+## 53. Teencode spelling (engine, off by default)
+
+**Status:** In the engine 2026-10-31, **on by default** (Tony: "ok, on by default"); an app setting comes with the main window revamp. Rules D53 (9 cases).
+
+**Asked by Tony** (from a VietTelex request on X): chat spelling like "zui zẻ", "zậy", "dzô", "bíe", "thík", "gòy", "ừk" shouldn't be put back to its keys. "Be conservative"; "maybe build a dictionary of teencode".
+
+**Rules** (`vTeencode`): z / dz count as d; open rimes "ie" (bíe, mịe) and "oy" with huyền only (gòy; "oxy" stays); k after i or ư (thík, ừk; "look" stays). **Dictionary:** at the end of the word, a word that is valid only by these rules stays only if it is in `Engine/TeencodeData.h` (193 words: ViSoLex, MIT, plus forms that occur in our chat data); anything else goes back to its keys ("zero" never becomes "zẻo"). "wá" isn't possible in Telex (w is ư). "kó", "nhìu", "bít" already worked.
+
+**Ties (asked by Tony):** with the option on, dictionary words that occur in our data get a Vietnamese score from their frequency (`kTeencodeVnScores`), so the usual tie rules decide them: "zoo" alone → zô, "đi zoo đây" → đi zô đây, "the zoo" → the zoo. Unmarked z-words that are English (zoom, zone, zero, zip) get no score.
+
+**Measured (option on vs off).** VietTelex's 50 teencode chat lines (MIT): words right 87.7% → 94.7%, lines 28 → 40 (the rest is "wá"). Val 5M words: accuracy 99.88% both (wrong words 0.1194% → 0.1195%), manual switches 0.1569 → 0.1571 per 100; chat and synthetic corpora identical; 394 teencode words in the real data now come out as their writers typed them (zị, zậy, dzô, gòy…), 13 other words changed. Known: "Zeiss" → "Zeis" (a doubled tone key, D19).
+
+**Also fixed (always on):** after a space, "(" "." "," etc. could rewrite the word before the space ("zẻo (" → "zzero("), like the hyphen in D52. Val wrong words 0.120% → 0.119%.
+
+## 52. Two keys that deleted the character before the word
+
+**Status:** Shipped 2026-10-30.
+
+**Problem.** Running the realistic-typing simulator over the 5M-word val set (not just the chat corpus) found keys that changed text before the word being typed:
+- "ử", space, "-" gave "wr wr-": the hyphen check (a hyphen glued to a word puts it back to English) also ran after a space, on the word before it.
+- "ís" + w ("iứ", the tone moves onto the new ư) deleted one character too many: "ab isw" gave "abiứ". The new ư isn't on screen yet, but the tone move counted it.
+- Also, D51 kept the look-back words while the cursor was away, so a word typed elsewhere could rewrite the words at the old spot ("cơn ác" ← ← ← "ok" gave "casc ok"). They're hidden while away now and come back with the word.
+
+**Fix.** The hyphen check only for a hyphen right after the word; the tone move deletes one fewer when the key only added ư/ơ.
+
+**Result.** 0 changes to text before the word across 5M words of realistic typing (was 50+). Val 99.88% unchanged, goldens unchanged. Rules D52 (3 cases).
+
+## 51. ← → back to the same spot keeps the word
+
+**Status:** Shipped 2026-10-30.
+
+**Problem.** The realistic-typing simulator (`sim/rtsim`, below) moved the cursor away and back while typing, like a person checking something: "th ← → if" gave "thif" instead of "thì". The arrow started a new word, so the engine forgot "th"; in English mode the word buffer was dropped too, so a word typed in the wrong language wasn't fixed at its end. 28% of cursor round trips left a wrong word.
+
+**Fix.** On the first ← inside (or right after) a word, the engine keeps a copy of its state; more ← count away, → counts back, and when the cursor is back at the word's end the copy comes back. Any other key, a click or Shift+arrow forgets it (typing somewhere else is a new word there). The Mac, Windows and Linux cores do the same for the English-mode word buffer. On the Mac, arrow keys carry the Fn and numeric-pad flags, which counted as "another modifier"; a plain arrow no longer does.
+
+**Result.** Cursor round trips needing a retyped word: 28% → under 2%. Goldens unchanged. Rules D51 (3 cases); the harness gets `{` `}` for ← →.
+
+**Later fix.** A click or a language switch while away didn't forget it (the desktops' English-mode copy, and the engine's across ⌥Z), so → brought the old word back at the new spot and the next key rewrote text there ("meeting th ← click → if " gave "meeting thì "). Both forget it now. Goldens unchanged; 5 more D51 rules.
+
+## 50. Backspace on a toned letter takes all its keys
+
+**Status:** Shipped 2026-10-30.
+
+**Problem.** "có", Backspace, "o" gave "coo" (found by the simulator). Backspace removed the letter "ó" from the screen but only one key ("s") from the engine's key list, so "o" was still there and the next "o" made two.
+
+**Fix.** When Backspace takes a letter made of several keys (a tone, â ê ô ă ơ ư đ) and what's left is plain letters, the key list becomes exactly those letters. Words with marks left in them keep the old behavior (rebuilding their keys in typing order broke English words typed in Vietnamese mode, e.g. "analytic" + w ⌫ → "aanlytics").
+
+**Result.** "co", "se", "toán" (tone kept). Typos fixed with Backspace that still needed the word retyped: 15% fewer. Goldens unchanged. Rules D50 (3 cases).
+
+**Realistic typing simulator.** `Tools/autoswitch/sim/rtsim.cpp` types every chat message twice (clean, and like a person: neighbouring-key typos fixed with Backspace, Backspace into the last word, ← → trips, clicks, an edit earlier in the text, ⌥Z round trips), over 3 seeds. It fails check.sh (and CI) if a key ever changes text from before a cursor move, click or switch (the "xin heín" class), if an edit elsewhere comes out wrong, if a word can't be fixed even by retyping, or if slips get more expensive than `rules/golden/rtsim.json`.
+
+## 49. Backspace never reopens a word from before a language switch
+
+**Status:** Shipped 2026-10-30.
+
+**Problem.** In Vietnamese: "xin ", ⌥Z, "hello", ⌥Z, Backspace, "s" gave "xin heín" (Tony). The engine keeps the last words so Backspace can go back into one and keep editing it. Words typed in English mode never enter that list, so after switching back, Backspace reopened "xin" as if it were the word on the screen, and "s" edited it.
+
+**Fix.** `vAutoSwitchForget` (called on every switch, app change, click and reset) clears those words, except the one an auto switch just converted, which is on screen (PR #8 by Ryan-LT; it replaced a narrower first fix that only cleared them on a language change). Without a switch, going back into the last word works as before ("tooi ddi hocj ⌫ s" → "tôi đi hóc").
+
+**Result.** "xin hells". Goldens and metrics unchanged. Rules D49 (3 cases); the test harness gets `#` for the switch hotkey.
+
+## 48. Lowercase "os" in Vietnamese is "ó"
+
+**Status:** Shipped 2026-10-30.
+
+**Problem.** In Vietnamese mode "la với os" stayed "os" and switched to English (Tony): "os" (OS) is in the developer word list at the top English score (40), while "ó" is a common chat interjection.
+
+**Fix.** "os" gets English score 0 (build_dict.py `EN_OVERRIDE`; patched in the built data like D40). At 0, a Vietnamese sentence gives "ó" and an English one keeps "os" ("the os is", "my os is linux" in either mode). OS the acronym is typed in caps, which stays as typed. A sweep: 10 and 0 behave the same; -10 and below turn English-mode "os" into "ó".
+
+**Result.** Val macro 0.119% → 0.120% wrong words (99.88%); chat_typos one manual switch and one wrong word fewer. Rules D48 (3 cases).
 
 ## 46. Linux: no per-website memory, no automatic install (approved)
 
@@ -65,16 +213,6 @@ If every listed change is intended, accept them with `Tools/autoswitch/check.sh 
 **Details:** `Windows/PLAN.md`.
 
 ---
-## 44. Backspace never reopens a word from before a language switch
-
-**Status:** Shipped 2026-10-30.
-
-**Problem.** In Vietnamese: "xin ", ⌥Z, "hello", ⌥Z, Backspace, "s" gave "xin heín" (Tony). The engine keeps the last words so Backspace can go back into one and keep editing it. Words typed in English mode never enter that list, so after switching back, Backspace reopened "xin" as if it were the word on the screen, and "s" edited it.
-
-**Fix.** When the language changes, the engine forgets those words (checked in `startNewSession` and on each key, so every app's switch path is covered). Without a switch, going back into the last word works as before ("tooi ddi hocj ⌫ s" → "tôi đi hóc").
-
-**Result.** "xin hells". Goldens and metrics unchanged. Rules D44 (3 cases); the test harness gets `#` for the switch hotkey.
-
 ## 43. Vikey for Android
 
 **Status:** Built 2026-10-29 on branch `android` (release build signed, live test 14/14 on the emulator). Publishing waits for a try on Tony's phone.
@@ -94,16 +232,6 @@ If every listed change is intended, accept them with `Tools/autoswitch/check.sh 
 **Details:** `Android/PLAN.md`.
 
 ---
-## 43. Lowercase "os" in Vietnamese is "ó"
-
-**Status:** Shipped 2026-10-30.
-
-**Problem.** In Vietnamese mode "la với os" stayed "os" and switched to English (Tony): "os" (OS) is in the developer word list at the top English score (40), while "ó" is a common chat interjection.
-
-**Fix.** "os" gets English score 0 (build_dict.py `EN_OVERRIDE`; patched in the built data like D40). At 0, a Vietnamese sentence gives "ó" and an English one keeps "os" ("the os is", "my os is linux" in either mode). OS the acronym is typed in caps, which stays as typed. A sweep: 10 and 0 behave the same; -10 and below turn English-mode "os" into "ó".
-
-**Result.** Val macro 0.119% → 0.120% wrong words (99.88%); chat_typos one manual switch and one wrong word fewer. Rules D43 (3 cases).
-
 ## 42. Acronyms don't flip the word before them
 
 **Status:** Shipped 2026-10-29.
@@ -592,7 +720,7 @@ He approved Otto's suggested cuts and added: "gõ tắt: remove".
   - Turning off for other input languages, now automatic and checked once per input-source change instead of on every keystroke.
   - Launch at login.
 - **Removed**
-  - VNI, Simple Telex 1 and 2.
+  - VNI, Simple Telex 1 and 2 (Simple Telex came back as a setting in D56).
   - Code tables other than Unicode (TCVN3, VNI Windows, Unicode compound, CP1258) and remembering a code table per app.
   - The convert tool.
   - Quick Telex (cc → ch…) and quick start/end consonants.
@@ -861,3 +989,15 @@ Word recording can be turned off in the log window. Nothing leaves the Mac; Tony
 **Cause.** macOS disables the event tap when it times out or on user input (a slow Mac, secure input), and the app never turned it back on.
 
 **Fix.** Re-enable the tap when macOS reports it was disabled. A 2-second watchdog also re-enables it if needed.
+
+### Literal restoration after Telex transformations
+
+At a word boundary, restore the complete typed spelling when it is a
+recognized English word, including cases where the shortened spelling is
+also recognized. Internal case boundaries and separated vowel groups can
+provide structural evidence for an unlisted literal. Explicit Telex
+modifiers continue to protect unlisted Vietnamese syllables.
+
+Restoration based solely on the new unlisted-literal evidence applies to
+the current word. Existing spelling-based restoration retains its lookback
+behavior.

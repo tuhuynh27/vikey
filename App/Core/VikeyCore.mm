@@ -29,7 +29,12 @@ static void PlaySwitchSound(int language) {
 #define VIKEY_EVENT_TAG 0x0F341991
 #define VIKEY_BUNDLE [[NSBundle mainBundle] bundleIdentifier]
 
-#define FRONT_APP [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier
+// The app being typed in, asked once per key: each lookup is a round trip to the window server,
+// and one key can need it several times (KeyFrontApp, below).
+#define FRONT_APP KeyFrontApp()
+// ← or → with no modifier (macOS marks arrow keys with the Fn and numeric-pad flags, which OTHER_CONTROL_KEY counts)
+#define PLAIN_ARROW ((_keycode == KEY_LEFT || _keycode == KEY_RIGHT) && \
+                     !(_flag & (kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskShift)))
 #define OTHER_CONTROL_KEY (_flag & kCGEventFlagMaskCommand) || (_flag & kCGEventFlagMaskControl) || \
                             (_flag & kCGEventFlagMaskAlternate) || (_flag & kCGEventFlagMaskSecondaryFn) || \
                             (_flag & kCGEventFlagMaskNumericPad) || (_flag & kCGEventFlagMaskHelp)
@@ -86,6 +91,9 @@ extern "C" {
     CGEventRef _newEventDown, _newEventUp;
     CGKeyCode _keycode;
     CGEventFlags _flag, _lastFlag = 0, _privateFlag;
+    // a key or click came while modifiers were held: they were for it, not a modifier-only hotkey (cleared when all are up)
+    static bool _modifierChordUsed = false;
+    #define MODIFIER_FLAGS (kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskCommand | kCGEventFlagMaskShift)
     CGEventTapProxy _proxy;
     
     Uint16 _newCharString[MAX_UNICODE_STRING];
@@ -152,12 +160,16 @@ extern "C" {
 
     /// Starts over: no current word and nothing to look back on.
     static bool _enAfterDouble = false;   // the current English word began in Vietnamese and switched on a doubled tone key
+    // ← then → back to the same spot inside a word: the English word is still the one being typed (D51)
+    static Uint32 _enNavKeys[MAX_BUFF]; static int _enNavCount = 0, _enNavPrevN = 0, _enNavOffset = 0;
+    static bool _enNavValid = true, _enNavAfterDouble = false;
 
     static void ResetEnglishWord(bool valid) {
         _enAfterDouble = false;
         _undoneCount = 0;
         StartEnglishWord(valid);
         _enPrevN = 0;
+        _enNavOffset = 0;   // a click or a switch while away: → must not bring the old word back at the new spot (D51)
         vAutoSwitchForget();
     }
 
@@ -285,6 +297,37 @@ extern "C" {
     }
 
     /// Reads Vikey's settings into the engine. Called at start and whenever a setting changes.
+    // ---- Excluded apps -------------------------------------------------------------------
+    // "ExcludedApps" (UserDefaults, array of bundle ids; edited in the main window, remote-control apps listed by
+    // default): while one of them is in front Vikey passes every key through untouched, so no Vietnamese typing and
+    // no auto switch (typing there goes to another machine). The language hotkey still works.
+    static NSSet<NSString*>* _excludedApps = nil;
+    static bool _frontExcluded = false;
+
+    void queryFrontMostApp(void);
+
+    static void UpdateFrontExcluded() {
+        _frontExcluded = _frontMostApp != nil && [_excludedApps containsObject:_frontMostApp];
+    }
+
+    // ---- Auto switch per app ---------------------------------------------------------------
+    // "AutoSwitchByTyping" is the default for every app. "AutoSwitchPerApp" (bundle id -> 0/1, set from the
+    // menu bar) overrides it for one app. A choice equal to the default is not stored.
+    static NSString* const kAutoSwitchPerApp = @"AutoSwitchPerApp";
+
+    static int AutoSwitchGlobal() {
+        id on = [[NSUserDefaults standardUserDefaults] objectForKey:@"AutoSwitchByTyping"];
+        return on == nil ? 1 : ([on intValue] ? 1 : 0);
+    }
+
+    static int AutoSwitchForApp(NSString* app) {
+        if (app.length > 0) {
+            NSNumber* own = [[NSUserDefaults standardUserDefaults] dictionaryForKey:kAutoSwitchPerApp][app];
+            if (own != nil) return [own intValue] ? 1 : 0;
+        }
+        return AutoSwitchGlobal();
+    }
+
     // ---- Pause auto switch after a manual switch ----------------------------------------
     // The user just chose the language by hand: for 5 s auto switch stays out of the way (D21).
     static CFAbsoluteTime _autoPauseUntil = 0;
@@ -298,10 +341,36 @@ extern "C" {
         vAutoSwitchByTyping = 0;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (AutoSwitchPaused()) return;   // a later manual switch extended it
-            id on = [[NSUserDefaults standardUserDefaults] objectForKey:@"AutoSwitchByTyping"];
-            vAutoSwitchByTyping = on == nil ? 1 : [on intValue];
+            vAutoSwitchByTyping = AutoSwitchForApp(_frontMostApp);
             StartEnglishWord(false);          // the word being typed now wasn't followed from its start
         });
+    }
+
+    /// The app in front changed: is it excluded now, and which auto switch setting applies. (The word in progress is
+    /// already reset by frontmostAppChanged: OnFocusChanged and RequestNewSession.)
+    void OnAppForExclusion() {
+        queryFrontMostApp();
+        UpdateFrontExcluded();
+        if (!AutoSwitchPaused()) vAutoSwitchByTyping = AutoSwitchForApp(_frontMostApp);   // auto switch can differ per app
+    }
+
+    int VKAutoSwitchForFrontApp() { return AutoSwitchForApp(_frontMostApp); }
+    int VKFrontAppExcluded() { return _frontExcluded ? 1 : 0; }
+    NSString* VKFrontAppName() {
+        NSRunningApplication* a = [NSRunningApplication runningApplicationsWithBundleIdentifier:_frontMostApp].firstObject;
+        return a.localizedName ?: _frontMostApp;
+    }
+
+    /// Remembers the choice for the app in front.
+    void VKSetAutoSwitchForFrontApp(int on) {
+        NSString* app = _frontMostApp;
+        if (app.length == 0) return;
+        NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
+        NSMutableDictionary* m = [[d dictionaryForKey:kAutoSwitchPerApp] mutableCopy] ?: [NSMutableDictionary dictionary];
+        if ((on ? 1 : 0) == AutoSwitchGlobal()) [m removeObjectForKey:app]; else m[app] = @(on ? 1 : 0);
+        [d setObject:m forKey:kAutoSwitchPerApp];
+        if (!AutoSwitchPaused()) vAutoSwitchByTyping = AutoSwitchForApp(app);
+        StartEnglishWord(false);   // the word being typed now wasn't followed from its start
     }
 
     void VKLoadSettings() {
@@ -314,9 +383,13 @@ extern "C" {
         vCheckSpelling = get(@"Spelling", 1);
         vSetCheckSpelling();
         vRestoreIfWrongSpelling = get(@"RestoreIfInvalidWord", 1);
+        vTeencode = get(@"Teencode", 1);   // D53: zui zẻ, zậy, gòy, thík
+        vTelexStyle = get(@"TelexStyle", 0);   // D56: Telex / Simple Telex 1 / 2
         vUseModernOrthography = get(@"ModernOrthography", 1);
                 vUseSmartSwitchKey = get(@"UseSmartSwitchKey", 1);
-        vAutoSwitchByTyping = AutoSwitchPaused() ? 0 : get(@"AutoSwitchByTyping", 1);
+        vAutoSwitchByTyping = AutoSwitchPaused() ? 0 : AutoSwitchForApp(_frontMostApp);
+        _excludedApps = [NSSet setWithArray:[d arrayForKey:@"ExcludedApps"] ?: @[]];
+        UpdateFrontExcluded();
         vTypingLogKeys = get(@"TypingLogKeys", 1);
         vTypingLogEnabled = get(@"TypingLogEnabled", 0);
         int hotkey = get(@"SwitchKeyStatus", 0);
@@ -326,6 +399,7 @@ extern "C" {
     }
 
     void VikeyInit() {
+        queryFrontMostApp();   // so the excluded-app check is right from the first key
         VKLoadSettings();
         _tlApp = [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier ?: ([[NSWorkspace sharedWorkspace] frontmostApplication].localizedName ?: @"");
         [NSTimer scheduledTimerWithTimeInterval:10 repeats:YES block:^(NSTimer* t) { TLFlush(); }];
@@ -367,10 +441,34 @@ extern "C" {
     }
     
 
-    BOOL isSpotlightVisible() {
+    // Per-key memo, cleared at the start of every tap callback: the frontmost app and whether Spotlight
+    // is open don't change within one key, and each costs a window server round trip (the window list
+    // scan grows with the number of windows on screen).
+    static NSString* _keyFrontApp = nil;
+    static bool _keyFrontAppReady = false;
+    static int _keySpotlight = -1;   // -1 unknown, 0 hidden, 1 visible
+
+    static void ForgetPerKeyState() {
+        _keyFrontApp = nil;
+        _keyFrontAppReady = false;
+        _keySpotlight = -1;
+    }
+
+    NSString* KeyFrontApp() {
+        if (!_keyFrontAppReady) {
+            _keyFrontApp = [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier;
+            _keyFrontAppReady = true;
+        }
+        return _keyFrontApp;
+    }
+
+    static BOOL ScanForSpotlight() {
         NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
                                                                         kCGNullWindowID));
+        // The Spotlight icon in the menu bar (macOS 15) is a Spotlight-owned window too: skip status items
+        NSInteger statusLevel = CGWindowLevelForKey(kCGStatusWindowLevelKey);
         for (NSDictionary *window in windows) {
+            if ([[window objectForKey:(__bridge NSString *)kCGWindowLayer] integerValue] == statusLevel) continue;
             if ([[window objectForKey:(__bridge NSString *)kCGWindowOwnerName] isEqualToString:@"Spotlight"]) {
                 return true;
             }
@@ -378,22 +476,34 @@ extern "C" {
         return false;
     }
 
+    BOOL isSpotlightVisible() {
+        if (_keySpotlight < 0) _keySpotlight = ScanForSpotlight() ? 1 : 0;
+        return _keySpotlight == 1;
+    }
+
+    // The cheap app-list checks come first, so the Spotlight scan only runs when it decides the answer.
     BOOL shouldUseRecommendWorkaround(NSString* topApp) {
         if (!vFixRecommendBrowser) return false;
-        if (isSpotlightVisible()) return false;
-        if (topApp == nil) return true;
-        return ![_recommendWorkaroundDisabledApp containsObject:topApp];
+        if (topApp != nil && [_recommendWorkaroundDisabledApp containsObject:topApp]) return false;
+        return !isSpotlightVisible();
     }
 
     BOOL shouldUseSelectionReplacement(NSString* topApp) {
-        return isSpotlightVisible() || [_recommendWorkaroundDisabledApp containsObject:topApp];
+        return [_recommendWorkaroundDisabledApp containsObject:topApp] || isSpotlightVisible();
     }
     
+    // Saved right after the current key is handled, not inside the event tap: the whole per-app and
+    // per-site table is serialized, and an auto switch mid-typing would otherwise pay for it on the key.
+    static bool _smartSwitchSavePending = false;
     void saveSmartSwitchKeyData() {
-        getSmartSwitchKeySaveData(savedSmartSwitchKeyData);
-        NSData* _data = [NSData dataWithBytes:savedSmartSwitchKeyData.data() length:savedSmartSwitchKeyData.size()];
-        NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
-        [prefs setObject:_data forKey:@"smartSwitchKey"];
+        if (_smartSwitchSavePending) return;
+        _smartSwitchSavePending = true;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _smartSwitchSavePending = false;
+            getSmartSwitchKeySaveData(savedSmartSwitchKeyData);
+            NSData* _data = [NSData dataWithBytes:savedSmartSwitchKeyData.data() length:savedSmartSwitchKeyData.size()];
+            [[NSUserDefaults standardUserDefaults] setObject:_data forKey:@"smartSwitchKey"];
+        });
     }
     
     void ApplySmartSwitch(void);
@@ -432,6 +542,8 @@ extern "C" {
         ResetEnglishWord(true);   // switched from the menu or the control panel: nothing to look back on
         if (vUseSmartSwitchKey) {
             queryFrontMostApp();
+            UpdateFrontExcluded();
+            if (_frontExcluded) return;   // no language memory inside an excluded app (it would apply after un-excluding)
             setAppInputMethodStatus(SmartSwitchContextKey(), vLanguage);
             saveSmartSwitchKeyData();
         }
@@ -458,14 +570,12 @@ extern "C" {
         }
     }
 
-    /// Posts a real key press (used for control keys such as Return after a restore).
-    void SendKeyCode(Uint32 data) {
-        CGEventRef down = CGEventCreateKeyboardEvent(myEventSource, (CGKeyCode)(data & 0xFFFF), true);
-        CGEventRef up = CGEventCreateKeyboardEvent(myEventSource, (CGKeyCode)(data & 0xFFFF), false);
+    /// Posts a real key press with these modifiers (used for control keys such as Return after a restore).
+    void SendKeyCode(CGKeyCode key, CGEventFlags flags) {
+        CGEventRef down = CGEventCreateKeyboardEvent(myEventSource, key, true);
+        CGEventRef up = CGEventCreateKeyboardEvent(myEventSource, key, false);
         CGEventSetIntegerValueField(down, kCGEventSourceUserData, VIKEY_EVENT_TAG);
         CGEventSetIntegerValueField(up, kCGEventSourceUserData, VIKEY_EVENT_TAG);
-        CGEventFlags flags = CGEventGetFlags(down);
-        if (data & CAPS_MASK) flags |= kCGEventFlagMaskShift; else flags &= ~kCGEventFlagMaskShift;
         flags |= kCGEventFlagMaskNonCoalesced;
         CGEventSetFlags(down, flags);
         CGEventSetFlags(up, flags);
@@ -499,6 +609,7 @@ extern "C" {
         CFRelease(up);
     }
 
+    static bool IsLetterKey(const Uint16& key);
     /// Types the engine's new characters; for a restore, also the key that triggered it.
     void SendNewCharString() {
         UniChar text[MAX_BUFF + 2];
@@ -509,24 +620,27 @@ extern "C" {
         }
         bool sendControlKey = false;
         if (pData->code == vRestore || pData->code == vRestoreAndStartNewSession) {
-            Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskAlphaShift) || (_flag & kCGEventFlagMaskShift) ? CAPS_MASK : 0));
+            Uint16 ch = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskShift) || ((_flag & kCGEventFlagMaskAlphaShift) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only ("NAS," gave "NAS<")
             if (ch != 0) text[n++] = ch; else sendControlKey = true;   // Return, Tab...: send the real key after the text
         }
         if (pData->code == vRestoreAndStartNewSession) startNewSession();
         if (n > 0) PostText(text, n);
-        if (sendControlKey) SendKeyCode(_keycode);
+        if (sendControlKey) SendKeyCode(_keycode, _flag);   // the key press's own modifiers: ⇧↩ stays a new line, not a send
     }
 
-    bool checkHotKey(int hotKeyData, bool checkKeyCode=true) {
+    /// flags: the modifiers held. For a key hotkey (⌥Z) that's the key press's own flags, so holding ⌥ and
+    /// pressing Z again (or auto-repeat) switches again instead of typing "Ω"; for modifiers alone (⌃⇧) it's
+    /// the most modifiers held before the release.
+    bool checkHotKey(int hotKeyData, CGEventFlags flags, bool checkKeyCode=true) {
         if ((hotKeyData & (~0x8000)) == EMPTY_HOTKEY)
             return false;
-        if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskControl))
+        if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskControl))
             return false;
-        if (HAS_OPTION(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskAlternate))
+        if (HAS_OPTION(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskAlternate))
             return false;
-        if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskCommand))
+        if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskCommand))
             return false;
-        if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskShift))
+        if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskShift))
             return false;
         if (checkKeyCode) {
             if (GET_SWITCH_KEY(hotKeyData) != _keycode)
@@ -559,7 +673,7 @@ extern "C" {
             pData->backspaceCount++;
         }
 
-        if (shouldUseSelectionReplacement(FRONT_APP) && pData->backspaceCount > 0) {
+        if (pData->backspaceCount > 0 && shouldUseSelectionReplacement(FRONT_APP)) {
             for (_i = 0; _i < pData->backspaceCount; _i++) {
                 SendShiftAndLeftArrow();
             }
@@ -629,21 +743,28 @@ extern "C" {
         return [f stringFromDate:[NSDate date]];
     }
 
+    static bool _tlStatsDirty = false;         // counted since the last save
+
+    static void TLLoadStats() {
+        if (_tlStats) return;
+        NSDictionary* saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"TypingLogStats"];
+        _tlStats = [NSMutableDictionary dictionary];
+        for (NSString* day in saved) _tlStats[day] = [saved[day] mutableCopy];
+    }
+
     static void TLCount(NSString* name) {
         if (!vTypingLogEnabled) return;
-        if (!_tlStats) {
-            NSDictionary* saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"TypingLogStats"];
-            _tlStats = [NSMutableDictionary dictionary];
-            for (NSString* day in saved) _tlStats[day] = [saved[day] mutableCopy];
-        }
+        TLLoadStats();
         NSString* day = TLToday();
         NSMutableDictionary* d = _tlStats[day];
         if (!d) { d = [NSMutableDictionary dictionary]; _tlStats[day] = d; }
         d[name] = @([d[name] integerValue] + 1);
+        _tlStatsDirty = true;
     }
 
     void TLFlush() {
-        if (_tlStats) [[NSUserDefaults standardUserDefaults] setObject:_tlStats forKey:@"TypingLogStats"];
+        // the stats only when they changed: the 10 s timer runs whether or not anything was typed
+        if (_tlStats && _tlStatsDirty) { [[NSUserDefaults standardUserDefaults] setObject:_tlStats forKey:@"TypingLogStats"]; _tlStatsDirty = false; }
         if (_tlPending.length == 0) return;
         NSString* chunk = _tlPending;
         _tlPending = [NSMutableString new];
@@ -668,6 +789,7 @@ extern "C" {
     void TLClear() {
         _tlPending = [NSMutableString new];
         _tlStats = [NSMutableDictionary dictionary];
+        _tlStatsDirty = false;
         [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"TypingLogStats"];
         NSString* path = TLLogPath();
         if (!_tlQueue) _tlQueue = dispatch_queue_create("vikey.typinglog", DISPATCH_QUEUE_SERIAL);
@@ -678,8 +800,15 @@ extern "C" {
     }
 
     NSDictionary* TLStatsSnapshot() {
-        TLCount(@"_touch"); // loads saved stats
+        TLLoadStats();
         return [_tlStats copy];
+    }
+
+    /// Runs done on the main thread once everything flushed so far is on disk (and a clear has run).
+    void TLAfterWrites(void (^done)(void)) {
+        TLFlush();
+        if (!_tlQueue) _tlQueue = dispatch_queue_create("vikey.typinglog", DISPATCH_QUEUE_SERIAL);
+        dispatch_async(_tlQueue, ^{ dispatch_async(dispatch_get_main_queue(), done); });
     }
 
     static bool TLKeysAllowed() {
@@ -826,7 +955,7 @@ extern "C" {
         if (vAutoSwitchUndoCount <= 0 || correctedCount <= 0) return;
         // only a fix of the last word is undone; one that also fixed earlier words stays (Backspace just deletes)
         for (int x = 0; x < vAutoSwitchUndoCount; x++) if ((vAutoSwitchUndoData[x] & 0xFFFF) == KEY_SPACE && !(vAutoSwitchUndoData[x] & CHAR_CODE_MASK)) return;
-        Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskAlphaShift) || (_flag & kCGEventFlagMaskShift) ? CAPS_MASK : 0));
+        Uint16 breakChar = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskShift) || ((_flag & kCGEventFlagMaskAlphaShift) && IsLetterKey(_keycode)) ? CAPS_MASK : 0));   // Caps Lock shifts letters only (Space + CAPS_MASK is 0)
         if (breakChar == 0) return; // Enter and the like have already acted
         int n = 0;
         for (int x = 0; x < vAutoSwitchUndoCount && n < MAX_BUFF; x++) {
@@ -911,13 +1040,30 @@ extern "C" {
     /// English mode key: collect the word; at its end ask the engine whether it was Vietnamese.
     /// Returns true when the key was consumed (the word was replaced and the break key re-sent).
     static bool HandleEnglishKeyForAutoSwitch() {
-        if (OTHER_CONTROL_KEY) {
+        if ((OTHER_CONTROL_KEY) && !PLAIN_ARROW) {
             ResetEnglishWord(true);
             _enAfterShortcut = (_flag & (kCGEventFlagMaskCommand | kCGEventFlagMaskControl)) != 0;
             return false;
         }
         bool shift = _flag & kCGEventFlagMaskShift;
         bool caps = shift || (_flag & kCGEventFlagMaskAlphaShift);
+        if ((_keycode == KEY_LEFT || _keycode == KEY_RIGHT) && !shift) {   // D51: ← → round trip inside a word
+            if (_keycode == KEY_LEFT && _enNavOffset == 0 && (_enCount > 0 || _enPrevN > 0)) {
+                memcpy(_enNavKeys, _enKeys, _enCount * sizeof(Uint32)); _enNavCount = _enCount; _enNavValid = _enValid;
+                _enNavAfterDouble = _enAfterDouble; _enNavPrevN = _enPrevN; _enNavOffset = -1;
+                StartEnglishWord(false); _enAfterDouble = false; _enPrevN = 0;
+                return false;
+            }
+            if (_enNavOffset < 0) {
+                if (_keycode == KEY_LEFT) _enNavOffset--;
+                else if (++_enNavOffset == 0) {   // back at the word's end: it's that word again
+                    memcpy(_enKeys, _enNavKeys, _enNavCount * sizeof(Uint32)); _enCount = _enNavCount; _enValid = _enNavValid;
+                    _enAfterDouble = _enNavAfterDouble; _enPrevN = _enNavPrevN;
+                }
+                return false;
+            }
+        }
+        _enNavOffset = 0;
         if (IsLetterKey(_keycode)) {
             if (_enCount < MAX_BUFF - 2) _enKeys[_enCount++] = _keycode | (caps ? CAPS_MASK : 0);
             else _enValid = false;
@@ -1026,7 +1172,8 @@ extern "C" {
             return event;
         }
         _proxy = proxy;
-        
+        ForgetPerKeyState();
+
         _flag = CGEventGetFlags(event);
         _keycode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
         
@@ -1036,9 +1183,12 @@ extern "C" {
         }
         
         // emoji picker hotkey: a key with exactly these modifiers
-        if (type == kCGEventKeyDown && vEmojiHotkey && GET_SWITCH_KEY(vEmojiHotkey) == _keycode &&
+        // (not in an excluded app: there the key belongs to that app)
+        if (type == kCGEventKeyDown && vEmojiHotkey && !_frontExcluded && GET_SWITCH_KEY(vEmojiHotkey) == _keycode &&
             HAS_CONTROL(vEmojiHotkey) == GET_BOOL(_flag & kCGEventFlagMaskControl) && HAS_OPTION(vEmojiHotkey) == GET_BOOL(_flag & kCGEventFlagMaskAlternate) &&
             HAS_COMMAND(vEmojiHotkey) == GET_BOOL(_flag & kCGEventFlagMaskCommand) && HAS_SHIFT(vEmojiHotkey) == GET_BOOL(_flag & kCGEventFlagMaskShift)) {
+            _lastFlag = 0; if (_flag & MODIFIER_FLAGS) _modifierChordUsed = true;   // ⌃⇧E: releasing ⌃⇧ afterwards isn't the ⌃⇧ switch hotkey
+            if (CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat)) return NULL;   // held: open or close once per press
             if (vEmojiHandler) dispatch_async(dispatch_get_main_queue(), vEmojiHandler);
             return NULL;
         }
@@ -1047,8 +1197,11 @@ extern "C" {
         if (type == kCGEventKeyDown) {
             if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode) {
                 _lastFlag = 0;
+                if (_flag & MODIFIER_FLAGS) _modifierChordUsed = true;   // ⌃⇧K: releasing ⌃⇧ afterwards isn't the hotkey
             } else {
-                if (GET_SWITCH_KEY(vSwitchKeyStatus) == _keycode && checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)){
+                if (GET_SWITCH_KEY(vSwitchKeyStatus) == _keycode && checkHotKey(vSwitchKeyStatus, _flag, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)){
+                    // holding ⌥Z auto-repeats ~30 times a second: switch once per press, swallow the repeats
+                    if (CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat)) return NULL;
                     switchLanguage();
                     _lastFlag = 0;
                     _hasJustUsedHotKey = true;
@@ -1056,12 +1209,21 @@ extern "C" {
                 }
             }
             _hasJustUsedHotKey = _lastFlag != 0;
+        } else if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventOtherMouseDown) {
+            // ⌃⇧-click (any button) or drag: the modifiers were for the click, so releasing them isn't the ⌃⇧ hotkey
+            _lastFlag = 0;
+            if (_flag & MODIFIER_FLAGS) _modifierChordUsed = true;
+        } else if (type == kCGEventFlagsChanged && _modifierChordUsed) {
+            // the modifiers held went with a click or another key: no modifier-only hotkey until all are released
+            // (⌃⌥⇧-click, then letting go of ⌥ and ⇧ one by one, must not switch)
+            _lastFlag = 0;
+            if (!(_flag & MODIFIER_FLAGS)) _modifierChordUsed = false;
         } else if (type == kCGEventFlagsChanged) {
             if (_lastFlag == 0 || _lastFlag < _flag) {
                 _lastFlag = _flag;
             } else if (_lastFlag > _flag)  {
                 //check switch
-                if (checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
+                if (checkHotKey(vSwitchKeyStatus, _lastFlag, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
                     _lastFlag = 0;
                     switchLanguage();
                     _hasJustUsedHotKey = true;
@@ -1071,6 +1233,9 @@ extern "C" {
                 _hasJustUsedHotKey = false;
             }
         }
+
+        // an excluded app (remote desktop...) is in front: every key goes through as typed
+        if (_frontExcluded) return event;
 
         // the emoji picker reads raw keys for its search (it does its own Telex reading)
         if (vEmojiOpen) return event;
@@ -1130,7 +1295,7 @@ extern "C" {
                             vKeyEventState::KeyDown,
                             _keycode,
                             _flag & kCGEventFlagMaskShift ? 1 : (_flag & kCGEventFlagMaskAlphaShift ? 2 : 0),
-                            OTHER_CONTROL_KEY);
+                            (OTHER_CONTROL_KEY) && !PLAIN_ARROW);
             if (pData->code == vDoNothing) { //do nothing
                 return event;
             } else if (pData->code == vWillProcess || pData->code == vRestore || pData->code == vRestoreAndStartNewSession) { //handle result signal
@@ -1161,10 +1326,16 @@ extern "C" {
     void TLClear(void);
     NSString* TLLogPath(void);
     NSDictionary* TLStatsSnapshot(void);
+    void TLAfterWrites(void (^done)(void));
     void OnFocusChanged(void);
     void RequestNewSession(void);
     void OnActiveAppChanged(void);
     void OnInputMethodChanged(void);
+    void OnAppForExclusion(void);
+    int VKAutoSwitchForFrontApp(void);
+    int VKFrontAppExcluded(void);
+    NSString* VKFrontAppName(void);
+    void VKSetAutoSwitchForFrontApp(int on);
 }
 
 /// Saves the language, remembers it for the current app/site if asked, and tells the UI.
@@ -1212,7 +1383,7 @@ static NSTimer* _watchdog = nil;
     if (_eventTap) return YES;
     if (!_inited) { VikeyInit(); _inited = YES; }
     CGEventMask mask = (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp) | (1 << kCGEventFlagsChanged) |
-                       (1 << kCGEventLeftMouseDown) | (1 << kCGEventRightMouseDown);
+                       (1 << kCGEventLeftMouseDown) | (1 << kCGEventRightMouseDown) | (1 << kCGEventOtherMouseDown);
     _eventTap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, mask, VikeyEventCallback, NULL);
     if (!_eventTap) return NO;
     _runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, _eventTap, 0);
@@ -1222,8 +1393,8 @@ static NSTimer* _watchdog = nil;
     if (!_watchdog) {
         _watchdog = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer* t) {
             if (!_eventTap) return;
-            if (!CFMachPortIsValid(_eventTap)) { [VikeyCore stop]; [VikeyCore start]; return; }
-            if (!CGEventTapIsEnabled(_eventTap)) CGEventTapEnable(_eventTap, true);
+            if (!CFMachPortIsValid(_eventTap)) { [VikeyCore stop]; [VikeyCore start]; [VikeyCore resetTyping]; return; }
+            if (!CGEventTapIsEnabled(_eventTap)) [VikeyCore reenableEventTap];
         }];
     }
     return YES;
@@ -1246,7 +1417,9 @@ static NSTimer* _watchdog = nil;
 + (BOOL)isRunning { return _eventTap != NULL; }
 
 + (void)reenableEventTap {
-    if (_eventTap) CGEventTapEnable(_eventTap, true);
+    if (!_eventTap) return;
+    CGEventTapEnable(_eventTap, true);
+    [self resetTyping];   // keys typed while the tap was off reached the app unseen: the word on screen isn't the engine's
 }
 
 + (int)language { return vLanguage; }
@@ -1270,8 +1443,14 @@ static NSTimer* _watchdog = nil;
     OnFocusChanged();
     if (!_inited) return;
     RequestNewSession();
-    if (vUseSmartSwitchKey) OnActiveAppChanged();
+    OnAppForExclusion();
+    if (vUseSmartSwitchKey && !_frontExcluded) OnActiveAppChanged();   // no language memory inside an excluded app
 }
+
++ (BOOL)autoSwitchEnabledForFrontApp { return VKAutoSwitchForFrontApp() != 0; }
++ (BOOL)frontAppIsExcluded { return VKFrontAppExcluded() != 0; }
++ (NSString *)frontAppName { return VKFrontAppName(); }
++ (void)setAutoSwitchForFrontApp:(BOOL)on { VKSetAutoSwitchForFrontApp(on ? 1 : 0); }
 
 + (void)activeSpaceChanged {
     if (_inited) RequestNewSession();
@@ -1279,6 +1458,13 @@ static NSTimer* _watchdog = nil;
 
 + (void)setEmojiHotkeyHandler:(void (^)(void))handler { vEmojiHandler = [handler copy]; }
 + (void)setEmojiPickerOpen:(BOOL)open { vEmojiOpen = open; }
+
++ (int)hotkeyKeyCodeForEvent:(NSEvent *)event {
+    // the tap matches hotkeys against the key code mapped back to QWERTY (Dvorak, AZERTY...): record the same
+    int code = event.keyCode;
+    if (vPerformLayoutCompat) code = ConvertKeyStringToKeyCode(event.charactersIgnoringModifiers, code);
+    return code;
+}
 
 + (void)resetTyping {
     ResetEnglishWord(true);
@@ -1308,6 +1494,7 @@ static NSTimer* _watchdog = nil;
 + (NSString*)typingLogPath { return TLLogPath(); }
 + (NSDictionary*)typingLogStats { return TLStatsSnapshot(); }
 + (void)flushTypingLog { TLFlush(); }
++ (void)flushTypingLogThen:(void (^)(void))done { TLAfterWrites(done); }
 + (void)clearTypingLog { TLClear(); }
 
 @end

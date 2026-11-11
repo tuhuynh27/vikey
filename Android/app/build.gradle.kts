@@ -6,18 +6,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// One version for every platform: project.yml's MARKETING_VERSION (Android versionCode from it: 1.0.15 -> 10015)
+// One version for every platform: project.yml's MARKETING_VERSION. Android versionCode = version * 10 + a rebuild digit
+// (1.0.31 -> 100310; -PandroidRebuild=1 -> 100311): Google Play never takes the same versionCode twice, so a fixed
+// build of the same version needs its own. (1.0.31 was 10031 under the old scheme; every new code is higher.)
 val marketingVersion: String = file("../../project.yml").readLines().first { it.contains("MARKETING_VERSION") }.substringAfter('"').substringBefore('"')
-val versionCodeFromVersion: Int = marketingVersion.split('.').let { (it[0].toInt() * 10000) + (it[1].toInt() * 100) + it[2].toInt() }
+val versionCodeFromVersion: Int = marketingVersion.split('.').let { (it[0].toInt() * 10000) + (it[1].toInt() * 100) + it[2].toInt() } * 10 +
+    ((project.findProperty("androidRebuild") as String?)?.toInt() ?: 0)
 
 android {
     namespace = "app.vikey"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.2.12479018"
     defaultConfig {
         applicationId = "app.vikey"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = versionCodeFromVersion
         versionName = marketingVersion
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
